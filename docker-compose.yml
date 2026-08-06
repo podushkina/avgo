@@ -3,12 +3,13 @@ name: avito-antifraud
 services:
   postgres:
     image: postgres:18-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-antifraud}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-antifraud}
       POSTGRES_DB: ${POSTGRES_DB:-antifraud}
     ports:
-      - "5433:5432" # 5433 снаружи: 5432 на хосте часто занят локальным Postgres
+      - "127.0.0.1:5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql
     healthcheck:
@@ -20,6 +21,7 @@ services:
   api:
     build:
       context: ./services/api
+    restart: unless-stopped
     environment:
       HTTP_ADDR: ":8081"
       DATABASE_URL: postgres://${POSTGRES_USER:-antifraud}:${POSTGRES_PASSWORD:-antifraud}@postgres:5432/${POSTGRES_DB:-antifraud}?sslmode=disable
@@ -36,6 +38,7 @@ services:
   ai:
     build:
       context: ./services/ai
+    restart: unless-stopped
     environment:
       HTTP_ADDR: ":8082"
       LLM_PROVIDER: ${LLM_PROVIDER:-openai_compat}
@@ -47,6 +50,10 @@ services:
       DIALOG_SESSION_TTL: ${DIALOG_SESSION_TTL:-30m}
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    depends_on:
+      ollama-pull:
+        condition: service_completed_successfully
+        required: false
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8082/healthz"]
       interval: 10s
@@ -57,17 +64,21 @@ services:
   web:
     build:
       context: ./frontend
+    restart: unless-stopped
     ports:
       - "8080:80"
     depends_on:
-      - api
-      - ai
+      api:
+        condition: service_healthy
+      ai:
+        condition: service_healthy
 
   ollama:
     image: ollama/ollama:latest
     profiles: ["local-llm"]
+    restart: unless-stopped
     ports:
-      - "11435:11434"
+      - "127.0.0.1:11435:11434"
     volumes:
       - ollama:/root/.ollama
     healthcheck:
