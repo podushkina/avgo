@@ -1,0 +1,19 @@
+.env
+*.log
+
+# Go
+bin/
+go.work.sum
+
+# Node
+node_modules/
+dist/
+coverage/
+.vite/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+
+для контекста
