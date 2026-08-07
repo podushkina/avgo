@@ -18,6 +18,7 @@ var (
 )
 
 type Session struct {
+	mu         sync.RWMutex
 	ID         string
 	Role       prompt.Role
 	Difficulty prompt.Difficulty
@@ -28,13 +29,16 @@ type Session struct {
 }
 
 func (s *Session) History() []llm.Message {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	out := make([]llm.Message, len(s.Messages))
 	copy(out, s.Messages)
 	return out
 }
 
 type Store struct {
-	mu       sync.Mutex
+	mu       sync.RWMutex
 	sessions map[string]*Session
 	ttl      time.Duration
 	maxTurns int
@@ -71,28 +75,37 @@ func (s *Store) Create(role prompt.Role, difficulty prompt.Difficulty) *Session 
 }
 
 func (s *Store) Get(id string) (*Session, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
+	s.mu.RLock()
 	sess, ok := s.sessions[id]
+	s.mu.RUnlock()
+
 	if !ok {
 		return nil, ErrNotFound
 	}
-	if s.now().Sub(sess.LastSeen) > s.ttl {
-		delete(s.sessions, id)
+
+	sess.mu.RLock()
+	lastSeen := sess.LastSeen
+	sess.mu.RUnlock()
+
+	if s.now().Sub(lastSeen) > s.ttl {
+		s.Delete(id)
 		return nil, ErrNotFound
 	}
 	return sess, nil
 }
 
 func (s *Store) AppendUser(id, text string) (*Session, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
+	s.mu.RLock()
 	sess, ok := s.sessions[id]
+	s.mu.RUnlock()
+
 	if !ok {
 		return nil, ErrNotFound
 	}
+
+	sess.mu.Lock()
+	defer sess.mu.Unlock()
+
 	if sess.UserTurns >= s.maxTurns {
 		return nil, ErrTurnLimit
 	}
@@ -104,13 +117,17 @@ func (s *Store) AppendUser(id, text string) (*Session, error) {
 }
 
 func (s *Store) AppendAssistant(id, text string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
+	s.mu.RLock()
 	sess, ok := s.sessions[id]
+	s.mu.RUnlock()
+
 	if !ok {
 		return
 	}
+
+	sess.mu.Lock()
+	defer sess.mu.Unlock()
+
 	sess.Messages = append(sess.Messages, llm.Message{Role: llm.RoleAssistant, Content: text})
 	sess.LastSeen = s.now()
 }
@@ -122,8 +139,8 @@ func (s *Store) Delete(id string) {
 }
 
 func (s *Store) Len() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	return len(s.sessions)
 }
 
@@ -134,7 +151,11 @@ func (s *Store) evict() int {
 	now := s.now()
 	removed := 0
 	for id, sess := range s.sessions {
-		if now.Sub(sess.LastSeen) > s.ttl {
+		sess.mu.RLock()
+		lastSeen := sess.LastSeen
+		sess.mu.RUnlock()
+
+		if now.Sub(lastSeen) > s.ttl {
 			delete(s.sessions, id)
 			removed++
 		}
