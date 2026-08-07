@@ -3,11 +3,12 @@ package llm
 import (
 	"context"
 	"strings"
+	"sync/atomic"
 )
 
 type Mock struct {
 	replies []string
-	calls   int
+	calls   atomic.Uint64
 }
 
 func NewMock() *Mock {
@@ -21,8 +22,8 @@ func NewMock() *Mock {
 }
 
 func (m *Mock) Stream(ctx context.Context, msgs []Message, onToken func(string) error) error {
-	reply := m.replies[m.calls%len(m.replies)]
-	m.calls++
+	currentCall := m.calls.Add(1) - 1
+	reply := m.replies[currentCall%uint64(len(m.replies))]
 
 	for i, word := range strings.Fields(reply) {
 		select {

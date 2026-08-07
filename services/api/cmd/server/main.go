@@ -40,7 +40,7 @@ func run(log *slog.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	if err := migrate(cfg.DatabaseURL, log); err != nil {
+	if err := migrate(ctx, cfg.DatabaseURL, log); err != nil {
 		return fmt.Errorf("миграции: %w", err)
 	}
 
@@ -76,7 +76,7 @@ func run(log *slog.Logger) error {
 	return srv.Shutdown(shutdownCtx)
 }
 
-func migrate(dsn string, log *slog.Logger) error {
+func migrate(ctx context.Context, dsn string, log *slog.Logger) error {
 	db, err := sql.Open("pgx", dsn)
 	if err != nil {
 		return fmt.Errorf("открытие соединения: %w", err)
@@ -84,15 +84,20 @@ func migrate(dsn string, log *slog.Logger) error {
 	defer func() { _ = db.Close() }()
 
 	const attempts = 15
-	for i := 1; ; i++ {
-		if err = db.Ping(); err == nil {
+	for i := 1; i <= attempts; i++ {
+		if err = db.PingContext(ctx); err == nil {
 			break
 		}
 		if i == attempts {
 			return fmt.Errorf("база недоступна после %d попыток: %w", attempts, err)
 		}
 		log.Info("жду базу данных", "attempt", i)
-		time.Sleep(2 * time.Second)
+
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("отмена ожидания базы данных: %w", ctx.Err())
+		case <-time.After(2 * time.Second):
+		}
 	}
 
 	goose.SetBaseFS(migrations.FS)
@@ -100,7 +105,7 @@ func migrate(dsn string, log *slog.Logger) error {
 	if err := goose.SetDialect("postgres"); err != nil {
 		return fmt.Errorf("диалект goose: %w", err)
 	}
-	if err := goose.Up(db, "."); err != nil {
+	if err := goose.UpContext(ctx, db, "."); err != nil {
 		return fmt.Errorf("накат миграций: %w", err)
 	}
 
