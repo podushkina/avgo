@@ -47,7 +47,10 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/attempts/{id}/finish", s.handleFinishAttempt)
 
 	mux.HandleFunc("GET /api/progress", s.handleProgress)
-	return logging(s.log, mux)
+
+	limiter := NewRateLimiter(5, 10)
+
+	return limiter.Middleware(logging(s.log, mux))
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
