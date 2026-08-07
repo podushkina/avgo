@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -192,4 +193,77 @@ func (s *Store) ProgressByUser(ctx context.Context, userID uuid.UUID) ([]Progres
 
 func (s *Store) Ping(ctx context.Context) error {
 	return s.pool.Ping(ctx)
+}
+
+// StartAttempt создает новую пустую попытку для пользователя
+func (s *Store) StartAttempt(ctx context.Context, userID uuid.UUID, role domain.Role) (uuid.UUID, error) {
+	attemptID := uuid.New()
+	_, err := s.pool.Exec(ctx, `
+        INSERT INTO attempts (id, user_id, role, status, answers)
+        VALUES ($1, $2, $3, 'in_progress', '{}'::jsonb)
+    `, attemptID, userID, string(role))
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("старт попытки: %w", err)
+	}
+	return attemptID, nil
+}
+
+// RecordAnswer фиксирует ответ. Если ответ уже был, возвращает его.
+func (s *Store) RecordAnswer(ctx context.Context, attemptID uuid.UUID, scenarioID int, optionID int) (int, error) {
+	var savedOption int
+	scenarioStr := strconv.Itoa(scenarioID)
+
+	query := `
+    WITH updated AS (
+        UPDATE attempts
+        SET answers = answers || jsonb_build_object($2::text, $3::int)
+        WHERE id = $1 AND status = 'in_progress' AND NOT (answers ? $2::text)
+        RETURNING (answers->>$2::text)::int AS saved_option
+    )
+    SELECT saved_option FROM updated
+    UNION ALL
+    SELECT (answers->>$2::text)::int FROM attempts WHERE id = $1 AND (answers ? $2::text);`
+
+	err := s.pool.QueryRow(ctx, query, attemptID, scenarioStr, optionID).Scan(&savedOption)
+	if err != nil {
+		return 0, fmt.Errorf("запись ответа (или попытка завершена): %w", err)
+	}
+	return savedOption, nil
+}
+
+// GetAttemptAnswers достает все сохраненные ответы попытки
+func (s *Store) GetAttemptAnswers(ctx context.Context, attemptID uuid.UUID) ([]domain.Answer, domain.Role, uuid.UUID, error) {
+	var answersJSON []byte
+	var roleStr string
+	var userID uuid.UUID
+
+	err := s.pool.QueryRow(ctx, `
+        SELECT answers, role, user_id 
+        FROM attempts 
+        WHERE id = $1 AND status = 'in_progress'
+    `, attemptID).Scan(&answersJSON, &roleStr, &userID)
+	if err != nil {
+		return nil, "", uuid.Nil, fmt.Errorf("выборка попытки: %w", err)
+	}
+
+	var strAnswers map[string]int
+	if err := json.Unmarshal(answersJSON, &strAnswers); err != nil {
+		return nil, "", uuid.Nil, fmt.Errorf("разбор ответов: %w", err)
+	}
+
+	answers := make([]domain.Answer, 0, len(strAnswers))
+	for k, v := range strAnswers {
+		id, _ := strconv.Atoi(k)
+		answers = append(answers, domain.Answer{
+			ScenarioID: id,
+			Option:     v,
+		})
+	}
+	return answers, domain.Role(roleStr), userID, nil
+}
+
+// MarkAttemptCompleted закрывает попытку
+func (s *Store) MarkAttemptCompleted(ctx context.Context, attemptID uuid.UUID) error {
+	_, err := s.pool.Exec(ctx, `UPDATE attempts SET status = 'completed' WHERE id = $1`, attemptID)
+	return err
 }

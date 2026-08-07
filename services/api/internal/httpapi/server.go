@@ -1,11 +1,10 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
-	"errors"
 	"log/slog"
 	"net/http"
-	"strconv"
 
 	"github.com/google/uuid"
 
@@ -13,12 +12,26 @@ import (
 	"github.com/avito-antifraud/api/internal/storage"
 )
 
+type AntiFraudStore interface {
+	EnsureUser(ctx context.Context, externalID string) (storage.User, error)
+	ScenariosByRole(ctx context.Context, role domain.Role) ([]domain.Scenario, error)
+	ScenarioByID(ctx context.Context, id int) (domain.Scenario, error)
+	SaveProgress(ctx context.Context, userID uuid.UUID, role domain.Role, res domain.Result) (storage.ProgressEntry, error)
+	ProgressByUser(ctx context.Context, userID uuid.UUID) ([]storage.ProgressEntry, error)
+	Ping(ctx context.Context) error
+
+	StartAttempt(ctx context.Context, userID uuid.UUID, role domain.Role) (uuid.UUID, error)
+	RecordAnswer(ctx context.Context, attemptID uuid.UUID, scenarioID int, optionID int) (int, error)
+	GetAttemptAnswers(ctx context.Context, attemptID uuid.UUID) ([]domain.Answer, domain.Role, uuid.UUID, error)
+	MarkAttemptCompleted(ctx context.Context, attemptID uuid.UUID) error
+}
+
 type Server struct {
-	store *storage.Store
+	store AntiFraudStore
 	log   *slog.Logger
 }
 
-func NewServer(store *storage.Store, log *slog.Logger) *Server {
+func NewServer(store AntiFraudStore, log *slog.Logger) *Server {
 	return &Server{store: store, log: log}
 }
 
@@ -28,8 +41,11 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/healthz", s.handleHealth)
 	mux.HandleFunc("POST /api/users", s.handleCreateUser)
 	mux.HandleFunc("GET /api/scenarios", s.handleScenarios)
-	mux.HandleFunc("POST /api/scenarios/{id}/check", s.handleCheckAnswer)
-	mux.HandleFunc("POST /api/attempts", s.handleSubmitAttempt)
+
+	mux.HandleFunc("POST /api/attempts/start", s.handleStartAttempt)
+	mux.HandleFunc("POST /api/attempts/{id}/check", s.handleCheckAnswer)
+	mux.HandleFunc("POST /api/attempts/{id}/finish", s.handleFinishAttempt)
+
 	mux.HandleFunc("GET /api/progress", s.handleProgress)
 	return logging(s.log, mux)
 }
@@ -82,55 +98,10 @@ func (s *Server) handleScenarios(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
-func (s *Server) handleCheckAnswer(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.Atoi(r.PathValue("id"))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "некорректный идентификатор сценария")
-		return
-	}
-
+func (s *Server) handleStartAttempt(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Option int `json:"option"`
-	}
-	if !decodeJSON(w, r, &req) {
-		return
-	}
-
-	sc, err := s.store.ScenarioByID(r.Context(), id)
-	if errors.Is(err, storage.ErrNotFound) {
-		writeError(w, http.StatusNotFound, "сценарий не найден")
-		return
-	}
-	if err != nil {
-		s.fail(w, "выборка сценария", err)
-		return
-	}
-
-	picked, valid := sc.Option(req.Option)
-	if !valid {
-		writeError(w, http.StatusBadRequest, "вариант вне диапазона")
-		return
-	}
-	correct, _ := sc.Option(sc.CorrectOption)
-
-	writeJSON(w, http.StatusOK, map[string]any{
-		"is_correct":          req.Option == sc.CorrectOption,
-		"your_verdict":        picked.Verdict,
-		"your_outcome":        picked.Outcome,
-		"points":              picked.Verdict.Points(),
-		"correct_option":      sc.CorrectOption,
-		"correct_option_text": correct.Text,
-		"correct_outcome":     correct.Outcome,
-		"explanation":         sc.Explanation,
-		"red_flags":           sc.RedFlags,
-	})
-}
-
-func (s *Server) handleSubmitAttempt(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		UserID  string          `json:"user_id"`
-		Role    string          `json:"role"`
-		Answers []domain.Answer `json:"answers"`
+		UserID string `json:"user_id"`
+		Role   string `json:"role"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
@@ -147,17 +118,79 @@ func (s *Server) handleSubmitAttempt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	attemptID, err := s.store.StartAttempt(r.Context(), userID, role)
+	if err != nil {
+		s.fail(w, "старт попытки", err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"attempt_id": attemptID.String()})
+}
+
+func (s *Server) handleCheckAnswer(w http.ResponseWriter, r *http.Request) {
+	attemptID, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "некорректный attempt_id")
+		return
+	}
+
+	var req struct {
+		ScenarioID int `json:"scenario_id"`
+		Option     int `json:"option"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+
+	savedOption, err := s.store.RecordAnswer(r.Context(), attemptID, req.ScenarioID, req.Option)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	sc, err := s.store.ScenarioByID(r.Context(), req.ScenarioID)
+	if err != nil {
+		s.fail(w, "выборка сценария", err)
+		return
+	}
+
+	picked, _ := sc.Option(savedOption)
+	correct, _ := sc.Option(sc.CorrectOption)
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"is_correct":          savedOption == sc.CorrectOption,
+		"your_verdict":        picked.Verdict,
+		"your_outcome":        picked.Outcome,
+		"points":              picked.Verdict.Points(),
+		"correct_option":      sc.CorrectOption,
+		"correct_option_text": correct.Text,
+		"correct_outcome":     correct.Outcome,
+		"explanation":         sc.Explanation,
+		"red_flags":           sc.RedFlags,
+		"was_overwritten":     savedOption != req.Option,
+	})
+}
+
+func (s *Server) handleFinishAttempt(w http.ResponseWriter, r *http.Request) {
+	attemptID, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "некорректный attempt_id")
+		return
+	}
+
+	answers, role, userID, err := s.store.GetAttemptAnswers(r.Context(), attemptID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "попытка не найдена или уже завершена")
+		return
+	}
+
 	scenarios, err := s.store.ScenariosByRole(r.Context(), role)
 	if err != nil {
 		s.fail(w, "выборка сценариев", err)
 		return
 	}
-	if len(scenarios) == 0 {
-		writeError(w, http.StatusConflict, "для этой роли не заведены сценарии")
-		return
-	}
 
-	result := domain.Score(scenarios, req.Answers)
+	result := domain.Score(scenarios, answers)
 
 	entry, err := s.store.SaveProgress(r.Context(), userID, role, result)
 	if err != nil {
@@ -165,8 +198,10 @@ func (s *Server) handleSubmitAttempt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	_ = s.store.MarkAttemptCompleted(r.Context(), attemptID)
+
 	writeJSON(w, http.StatusOK, map[string]any{
-		"attempt_id":           entry.ID,
+		"progress_id":          entry.ID,
 		"role":                 role,
 		"correct":              result.Correct,
 		"total":                result.Total,
