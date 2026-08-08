@@ -34,10 +34,10 @@ type User struct {
 func (s *Store) EnsureUser(ctx context.Context, externalID string) (User, error) {
 	var u User
 	err := s.pool.QueryRow(ctx, `
-		INSERT INTO users (id, external_id)
-		VALUES ($1, $2)
-		ON CONFLICT (external_id) DO UPDATE SET external_id = EXCLUDED.external_id
-		RETURNING id, external_id, created_at`,
+        INSERT INTO users (id, external_id)
+        VALUES ($1, $2)
+        ON CONFLICT (external_id) DO UPDATE SET external_id = EXCLUDED.external_id
+        RETURNING id, external_id, created_at`,
 		uuid.New(), externalID,
 	).Scan(&u.ID, &u.ExternalID, &u.CreatedAt)
 	if err != nil {
@@ -48,11 +48,11 @@ func (s *Store) EnsureUser(ctx context.Context, externalID string) (User, error)
 
 func (s *Store) ScenariosByRole(ctx context.Context, role domain.Role) ([]domain.Scenario, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, role, order_index, title, situation, question,
-		       options, correct_option, explanation, red_flags
-		FROM scenarios
-		WHERE role = $1
-		ORDER BY order_index`, string(role))
+        SELECT id, role, order_index, title, situation, question,
+               options, correct_option, explanation, red_flags
+        FROM scenarios
+        WHERE role = $1
+        ORDER BY order_index`, string(role))
 	if err != nil {
 		return nil, fmt.Errorf("выборка сценариев: %w", err)
 	}
@@ -93,9 +93,9 @@ func (s *Store) ScenarioByID(ctx context.Context, id int) (domain.Scenario, erro
 		redFlags []byte
 	)
 	err := s.pool.QueryRow(ctx, `
-		SELECT id, role, order_index, title, situation, question,
-		       options, correct_option, explanation, red_flags
-		FROM scenarios WHERE id = $1`, id,
+        SELECT id, role, order_index, title, situation, question,
+               options, correct_option, explanation, red_flags
+        FROM scenarios WHERE id = $1`, id,
 	).Scan(&sc.ID, &roleStr, &sc.OrderIndex, &sc.Title, &sc.Situation,
 		&sc.Question, &opts, &sc.CorrectOption, &sc.Explanation, &redFlags)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -145,9 +145,9 @@ func (s *Store) SaveProgress(
 		Mistakes:     res.Mistakes,
 	}
 	err = s.pool.QueryRow(ctx, `
-		INSERT INTO progress (id, user_id, role, correct_count, total_count, percent, score, answers)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		RETURNING completed_at`,
+        INSERT INTO progress (id, user_id, role, correct_count, total_count, percent, score, answers)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        RETURNING completed_at`,
 		entry.ID, userID, string(role), res.Correct, res.Total, res.Percent, res.Score, mistakes,
 	).Scan(&entry.CompletedAt)
 	if err != nil {
@@ -158,10 +158,10 @@ func (s *Store) SaveProgress(
 
 func (s *Store) ProgressByUser(ctx context.Context, userID uuid.UUID) ([]ProgressEntry, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, role, correct_count, total_count, percent, score, answers, completed_at
-		FROM progress
-		WHERE user_id = $1
-		ORDER BY completed_at DESC`, userID)
+        SELECT id, role, correct_count, total_count, percent, score, answers, completed_at
+        FROM progress
+        WHERE user_id = $1
+        ORDER BY completed_at DESC`, userID)
 	if err != nil {
 		return nil, fmt.Errorf("выборка прогресса: %w", err)
 	}
@@ -189,6 +189,58 @@ func (s *Store) ProgressByUser(ctx context.Context, userID uuid.UUID) ([]Progres
 		return nil, fmt.Errorf("обход прогресса: %w", err)
 	}
 	return out, nil
+}
+
+func (s *Store) ProgressByUserPaginated(ctx context.Context, userID uuid.UUID, limit, offset int) ([]ProgressEntry, int, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	var total int
+	err := s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM progress WHERE user_id = $1`, userID).Scan(&total)
+	if err != nil {
+		return nil, 0, fmt.Errorf("подсчет прогресса: %w", err)
+	}
+
+	rows, err := s.pool.Query(ctx, `
+        SELECT id, role, correct_count, total_count, percent, score, answers, completed_at
+        FROM progress
+        WHERE user_id = $1
+        ORDER BY completed_at DESC
+        LIMIT $2 OFFSET $3`, userID, limit, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("выборка прогресса: %w", err)
+	}
+	defer rows.Close()
+
+	out := []ProgressEntry{}
+	for rows.Next() {
+		var (
+			e        ProgressEntry
+			roleStr  string
+			mistakes []byte
+		)
+		if err := rows.Scan(&e.ID, &roleStr, &e.CorrectCount, &e.TotalCount,
+			&e.Percent, &e.Score, &mistakes, &e.CompletedAt); err != nil {
+			return nil, 0, fmt.Errorf("чтение прогресса: %w", err)
+		}
+		if err := json.Unmarshal(mistakes, &e.Mistakes); err != nil {
+			return nil, 0, fmt.Errorf("разбор ошибок попытки %s: %w", e.ID, err)
+		}
+		e.Role = domain.Role(roleStr)
+		e.Level = domain.LevelFor(e.Percent)
+		out = append(out, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("обход прогресса: %w", err)
+	}
+	return out, total, nil
 }
 
 func (s *Store) Ping(ctx context.Context) error {

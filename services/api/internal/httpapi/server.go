@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strconv"
 
 	"github.com/google/uuid"
 
@@ -18,6 +19,7 @@ type AntiFraudStore interface {
 	ScenarioByID(ctx context.Context, id int) (domain.Scenario, error)
 	SaveProgress(ctx context.Context, userID uuid.UUID, role domain.Role, res domain.Result) (storage.ProgressEntry, error)
 	ProgressByUser(ctx context.Context, userID uuid.UUID) ([]storage.ProgressEntry, error)
+	ProgressByUserPaginated(ctx context.Context, userID uuid.UUID, limit, offset int) ([]storage.ProgressEntry, int, error)
 	Ping(ctx context.Context) error
 
 	StartAttempt(ctx context.Context, userID uuid.UUID, role domain.Role) (uuid.UUID, error)
@@ -228,12 +230,19 @@ func (s *Server) handleProgress(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	entries, err := s.store.ProgressByUser(r.Context(), userID)
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+
+	entries, total, err := s.store.ProgressByUserPaginated(r.Context(), userID, limit, offset)
 	if err != nil {
 		s.fail(w, "выборка прогресса", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, entries)
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"total": total,
+		"items": entries,
+	})
 }
 
 func (s *Server) fail(w http.ResponseWriter, op string, err error) {
