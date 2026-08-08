@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/avito-antifraud/httpx"
 )
 
 type client struct {
@@ -79,7 +81,7 @@ func (rl *RateLimiter) Middleware(next http.Handler) http.Handler {
 		}
 
 		if !rl.Allow(ip) {
-			writeError(w, http.StatusTooManyRequests, "слишком много запросов, подождите немного")
+			httpx.WriteError(w, http.StatusTooManyRequests, "слишком много запросов, подождите немного")
 			return
 		}
 

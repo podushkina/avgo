@@ -2,15 +2,16 @@ package httpapi
 
 import (
 	"context"
-	"encoding/json"
 	"log/slog"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/avito-antifraud/api/internal/domain"
 	"github.com/avito-antifraud/api/internal/storage"
+	"github.com/avito-antifraud/httpx"
 )
 
 type AntiFraudStore interface {
@@ -52,26 +53,26 @@ func (s *Server) Routes() http.Handler {
 
 	limiter := NewRateLimiter(5, 10)
 
-	return limiter.Middleware(logging(s.log, mux))
+	return limiter.Middleware(httpx.TimeoutAndLog(s.log, 15*time.Second)(mux))
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	if err := s.store.Ping(r.Context()); err != nil {
-		writeError(w, http.StatusServiceUnavailable, "база данных недоступна")
+		httpx.WriteError(w, http.StatusServiceUnavailable, "база данных недоступна")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ExternalID string `json:"external_id"`
 	}
-	if !decodeJSON(w, r, &req) {
+	if !httpx.DecodeJSON(w, r, &req) {
 		return
 	}
 	if req.ExternalID == "" {
-		writeError(w, http.StatusBadRequest, "external_id обязателен")
+		httpx.WriteError(w, http.StatusBadRequest, "external_id обязателен")
 		return
 	}
 
@@ -80,13 +81,13 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, "создание пользователя", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, user)
+	httpx.WriteJSON(w, http.StatusOK, user)
 }
 
 func (s *Server) handleScenarios(w http.ResponseWriter, r *http.Request) {
 	role, err := domain.ParseRole(r.URL.Query().Get("role"))
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -100,7 +101,7 @@ func (s *Server) handleScenarios(w http.ResponseWriter, r *http.Request) {
 	for _, sc := range scenarios {
 		out = append(out, sc.Public())
 	}
-	writeJSON(w, http.StatusOK, out)
+	httpx.WriteJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) handleStartAttempt(w http.ResponseWriter, r *http.Request) {
@@ -108,18 +109,18 @@ func (s *Server) handleStartAttempt(w http.ResponseWriter, r *http.Request) {
 		UserID string `json:"user_id"`
 		Role   string `json:"role"`
 	}
-	if !decodeJSON(w, r, &req) {
+	if !httpx.DecodeJSON(w, r, &req) {
 		return
 	}
 
 	userID, err := uuid.Parse(req.UserID)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "некорректный user_id")
+		httpx.WriteError(w, http.StatusBadRequest, "некорректный user_id")
 		return
 	}
 	role, err := domain.ParseRole(req.Role)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -129,13 +130,13 @@ func (s *Server) handleStartAttempt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{"attempt_id": attemptID.String()})
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{"attempt_id": attemptID.String()})
 }
 
 func (s *Server) handleCheckAnswer(w http.ResponseWriter, r *http.Request) {
 	attemptID, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "некорректный attempt_id")
+		httpx.WriteError(w, http.StatusBadRequest, "некорректный attempt_id")
 		return
 	}
 
@@ -143,13 +144,13 @@ func (s *Server) handleCheckAnswer(w http.ResponseWriter, r *http.Request) {
 		ScenarioID int `json:"scenario_id"`
 		Option     int `json:"option"`
 	}
-	if !decodeJSON(w, r, &req) {
+	if !httpx.DecodeJSON(w, r, &req) {
 		return
 	}
 
 	savedOption, err := s.store.RecordAnswer(r.Context(), attemptID, req.ScenarioID, req.Option)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -162,7 +163,7 @@ func (s *Server) handleCheckAnswer(w http.ResponseWriter, r *http.Request) {
 	picked, _ := sc.Option(savedOption)
 	correct, _ := sc.Option(sc.CorrectOption)
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"is_correct":          savedOption == sc.CorrectOption,
 		"your_verdict":        picked.Verdict,
 		"your_outcome":        picked.Outcome,
@@ -179,13 +180,13 @@ func (s *Server) handleCheckAnswer(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleFinishAttempt(w http.ResponseWriter, r *http.Request) {
 	attemptID, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "некорректный attempt_id")
+		httpx.WriteError(w, http.StatusBadRequest, "некорректный attempt_id")
 		return
 	}
 
 	answers, role, userID, err := s.store.GetAttemptAnswers(r.Context(), attemptID)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "попытка не найдена или уже завершена")
+		httpx.WriteError(w, http.StatusBadRequest, "попытка не найдена или уже завершена")
 		return
 	}
 
@@ -205,7 +206,7 @@ func (s *Server) handleFinishAttempt(w http.ResponseWriter, r *http.Request) {
 
 	_ = s.store.MarkAttemptCompleted(r.Context(), attemptID)
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"progress_id":          entry.ID,
 		"role":                 role,
 		"correct":              result.Correct,
@@ -226,7 +227,7 @@ func (s *Server) handleFinishAttempt(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleProgress(w http.ResponseWriter, r *http.Request) {
 	userID, err := uuid.Parse(r.URL.Query().Get("user_id"))
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "некорректный user_id")
+		httpx.WriteError(w, http.StatusBadRequest, "некорректный user_id")
 		return
 	}
 
@@ -239,7 +240,7 @@ func (s *Server) handleProgress(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"total": total,
 		"items": entries,
 	})
@@ -247,34 +248,5 @@ func (s *Server) handleProgress(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) fail(w http.ResponseWriter, op string, err error) {
 	s.log.Error(op, "error", err)
-	writeError(w, http.StatusInternalServerError, "внутренняя ошибка сервиса")
-}
-
-func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
-	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(dst); err != nil {
-		writeError(w, http.StatusBadRequest, "некорректный JSON: "+err.Error())
-		return false
-	}
-	return true
-}
-
-func writeJSON(w http.ResponseWriter, status int, body any) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(body)
-}
-
-func writeError(w http.ResponseWriter, status int, msg string) {
-	writeJSON(w, status, map[string]string{"error": msg})
-}
-
-func logging(log *slog.Logger, next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		next.ServeHTTP(w, r)
-		if r.URL.Path != "/healthz" {
-			log.Info("запрос", "method", r.Method, "path", r.URL.Path)
-		}
-	})
+	httpx.WriteError(w, http.StatusInternalServerError, "внутренняя ошибка сервиса")
 }
