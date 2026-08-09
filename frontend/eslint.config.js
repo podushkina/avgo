@@ -1,30 +1,67 @@
+import vanillaExtract from '@antebudimir/eslint-plugin-vanilla-extract';
 import js from '@eslint/js';
+import { defineConfig, globalIgnores } from 'eslint/config';
 import globals from 'globals';
-import tseslint from 'typescript-eslint';
-import reactHooks from 'eslint-plugin-react-hooks';
-import reactRefresh from 'eslint-plugin-react-refresh';
-import prettier from 'eslint-config-prettier';
 
-export default tseslint.config(
-  { ignores: ['dist', 'coverage', 'node_modules'] },
+import {
+  quality,
+  stylistic,
+  react,
+  importX,
+  typescript,
+} from './eslint-presets/index.js';
+
+// console.log(vanillaExtract.configs.recommended);
+
+export default defineConfig([
+  globalIgnores(['.yarn/**', '**/build/**', '.pnp.*']),
+
   {
-    files: ['**/*.{ts,tsx}'],
-    extends: [js.configs.recommended, ...tseslint.configs.recommended, prettier],
+    files: ['src/**/*.css.ts'],
+    extends: [vanillaExtract.configs.recommended],
+  },
+
+  // Основные файлы исходного кода проекта
+  {
+    files: ['src/**/*.{ts,tsx,js,jsx}'],
     languageOptions: {
-      ecmaVersion: 2022,
+      ecmaVersion: 'latest',
       globals: globals.browser,
     },
-    plugins: {
-      'react-hooks': reactHooks,
-      'react-refresh': reactRefresh,
-    },
+
+    extends: [
+      js.configs.recommended,
+      quality,
+      react,
+      importX,
+      typescript,
+      stylistic,
+    ],
+  },
+
+  // Компоненты, сгенерированные с помощью библиотеки shadcn
+  {
+    files: ['src/components/ui/**/*.{ts,tsx}'],
     rules: {
-      ...reactHooks.configs.recommended.rules,
-      'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
-      '@typescript-eslint/no-non-null-assertion': 'off',
-      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
-      eqeqeq: ['error', 'smart'],
-      'no-console': ['warn', { allow: ['warn', 'error'] }],
+      'react-refresh/only-export-components': 'off',
+      'react/no-multi-comp': 'off',
     },
   },
-);
+
+  // Конфиг файлы проекта
+  {
+    files: ['*.config.{js,ts}', 'eslint-presets/**/*.js'],
+    languageOptions: {
+      ecmaVersion: 'latest',
+      globals: globals.node,
+    },
+
+    extends: [js.configs.recommended, quality, importX, stylistic],
+
+    rules: {
+      'import-x/no-commonjs': 'error',
+      'import-x/no-import-module-exports': 'error',
+      'no-restricted-globals': ['error', '__dirname', '__filename'],
+    },
+  },
+]);

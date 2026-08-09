@@ -1,20 +1,28 @@
-/// <reference types="vitest/config" />
-import { defineConfig } from 'vite';
+import path from 'path';
+
+import tailwindcss from '@tailwindcss/vite';
+import { vanillaExtractPlugin } from '@vanilla-extract/vite-plugin';
 import react from '@vitejs/plugin-react';
+import { defineConfig } from 'vite';
+import svgr from 'vite-plugin-svgr';
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), vanillaExtractPlugin(), tailwindcss(), svgr()],
   server: {
-    port: 5173,
+    port: 3000,
     proxy: {
-      '/api/dialog': { target: 'http://localhost:8082', changeOrigin: true },
-      '/api': { target: 'http://localhost:8081', changeOrigin: true },
+      '/api': {
+        target: 'http://localhost:8081',
+        changeOrigin: true,
+      },
     },
   },
-  test: {
-    environment: 'jsdom',
-    globals: true,
-    setupFiles: './src/test/setup.ts',
-    css: false,
+  build: {
+    outDir: 'build',
+  },
+  resolve: {
+    alias: {
+      '@': path.resolve(import.meta.dirname, './src'),
+    },
   },
 });

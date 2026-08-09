@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 520" role="img" aria-labelledby="buyerTitle buyerDesc">
+  <title id="buyerTitle">Покупатель передает деньги направо</title>
+  <desc id="buyerDesc">Молодой мужчина в профиль, в синей футболке, протягивает зеленые купюры вправо.</desc>
+  <defs>
+    <linearGradient id="buyerShirt" x1="125" y1="300" x2="330" y2="485" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#20b9ff"/>
+      <stop offset="1" stop-color="#0085ff"/>
+    </linearGradient>
+    <linearGradient id="buyerSkin" x1="255" y1="115" x2="500" y2="420" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffc58f"/>
+      <stop offset="1" stop-color="#ff9a63"/>
+    </linearGradient>
+  </defs>
+
+  <g stroke="#242129" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
+    <!-- backpack -->
+    <path d="M121 351c-32 26-45 76-42 134h63c-4-49 5-86 28-109z" fill="#44444d"/>
+    <path d="M114 393c17-15 34-19 53-14" fill="none" stroke="#8d8e98" stroke-width="6"/>
+    <path d="M108 416v43" fill="none" stroke="#8d8e98" stroke-width="6"/>
+
+    <!-- rear arm -->
+    <path d="M273 343c45 8 79 31 119 40 34 7 65-4 101-21l47-22c18-8 40-1 48 14 8 16-3 31-24 38l-56 20c-45 16-90 32-139 26-43-5-84-23-119-44z" fill="url(#buyerSkin)"/>
+
+    <!-- torso / shirt -->
+    <path d="M168 300c42-20 93-17 128 7 33 23 52 67 56 178H132c1-80 7-153 36-185z" fill="url(#buyerShirt)"/>
+    <path d="M183 307c33-20 80-21 119 4" fill="none" stroke="#65d6ff" stroke-width="7"/>
+    <path d="M160 337c-22 38-29 92-28 148" fill="none" stroke="#006fca" stroke-width="7"/>
+    <path d="M219 300c-15 16-25 36-30 59" fill="none" stroke="#242129" stroke-width="11"/>
+
+    <!-- neck -->
+    <path d="M247 239c4 31-3 50-18 69 22 18 49 22 74 10-9-21-10-44-5-70z" fill="url(#buyerSkin)"/>
+    <path d="M250 261c11 25 29 38 48 43" fill="none" stroke="#f07a46" stroke-width="5"/>
+
+    <!-- head profile -->
+    <path d="M211 111c35-38 101-37 137 1 22 23 26 55 18 78l23 23c8 8 7 19-2 25l-21 13c-4 38-26 65-64 69-42 4-79-13-93-49-12-30-14-115 2-160z" fill="url(#buyerSkin)"/>
+
+    <!-- ear -->
+    <ellipse cx="216" cy="213" rx="30" ry="38" fill="#ffb171"/>
+    <path d="M218 196c-18-7-22 25-2 31 10 3 14-6 16-15" fill="none" stroke="#ff714d" stroke-width="6"/>
+
+    <!-- hair -->
+    <path d="M193 195c-15-34-8-82 20-108 29-28 76-39 126-22 14 5 27 1 41-7 8 24-5 46-34 57 16 2 29-2 42-12 3 29-11 50-40 59-17 5-35 5-55-1 0 24-10 43-27 55-8-17-18-29-31-36-12 15-24 20-42 15z" fill="#2d292f"/>
+    <path d="M210 119c26-30 69-42 119-32 16 3 31 0 43-8-8 25-28 42-61 48-24 5-49 2-72-6" fill="#9a5326" stroke="#242129"/>
+    <path d="M222 126l-12 25 24-18-5 27 28-23 1 27 26-26" fill="#9a5326" stroke="#9a5326" stroke-width="5"/>
+
+    <!-- face details -->
+    <path d="M314 159c11-7 22-8 32-3" fill="none" stroke-width="7"/>
+    <ellipse cx="334" cy="180" rx="6" ry="11" fill="#242129" stroke="none"/>
+    <path d="M342 239c9 10 20 13 34 9" fill="none" stroke-width="7"/>
+    <path d="M367 248c-2 10-9 15-18 16" fill="none" stroke="#8e3e2f" stroke-width="4"/>
+
+    <!-- front sleeve -->
+    <path d="M268 318c34 5 62 21 83 49l-47 49c-30-15-56-38-72-64z" fill="url(#buyerShirt)"/>
+    <path d="M283 329c24 7 43 18 58 34" fill="none" stroke="#5dd1ff" stroke-width="6"/>
+
+    <!-- front arm and hand -->
+    <path d="M327 367c46 14 90 15 126-1l71-31c18-8 37-5 50 7 12 11 8 25-7 32l-75 35c-44 21-98 24-146 11l-42-12z" fill="url(#buyerSkin)"/>
+    <path d="M509 339c14-8 31-6 47 4l32 20c10 6 11 17 4 24-7 8-19 8-31 2l-32-16c-5-3-13-4-20-2" fill="url(#buyerSkin)"/>
+    <path d="M516 362c18 5 31 11 43 20" fill="none" stroke="#e76f47" stroke-width="4"/>
+    <path d="M488 393c16 1 31 4 43 10" fill="none" stroke="#e76f47" stroke-width="4"/>
+
+    <!-- banknotes -->
+    <g>
+      <path d="M533 300l126-24 12 70-126 24z" fill="#4fb52b"/>
+      <path d="M520 318l130-19 10 70-130 19z" fill="#64cc35"/>
+      <path d="M508 335l132-16 10 72-132 16z" fill="#79df45"/>
+      <path d="M523 346l103-13 7 49-103 13z" fill="#a3ef69" stroke="#2b8c28" stroke-width="5"/>
+      <circle cx="578" cy="364" r="17" fill="#2d9c2c" stroke="#237a23" stroke-width="4"/>
+      <circle cx="535" cy="369" r="5" fill="#2d9c2c" stroke="none"/>
+      <circle cx="621" cy="358" r="5" fill="#2d9c2c" stroke="none"/>
+    </g>
+  </g>
+</svg>

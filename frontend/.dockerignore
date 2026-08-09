@@ -1,4 +1,6 @@
+.git
+.yarn
 node_modules
-dist
+build
 coverage
 .vite
