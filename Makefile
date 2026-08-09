@@ -13,20 +13,20 @@ env: ## Создать .env из .env.example, если его ещё нет
 	@test -f .env || (cp .env.example .env && echo "создан .env")
 
 .PHONY: up
-up: env ## Поднять стек (LLM — нативный Ollama на хосте, быстро на macOS)
+up: env ## Поднять всё в Docker одной командой, включая модель
 	$(COMPOSE) up -d --build
 
-.PHONY: up-llm
-up-llm: env ## Поднять стек вместе с Ollama в контейнере (Linux/деплой/жюри)
-	LLM_BASE_URL=http://ollama:11434/v1 $(COMPOSE) --profile local-llm up -d --build
+.PHONY: up-host-llm
+up-host-llm: env ## То же, но модель берётся с хоста (быстрее на macOS, нужен запущенный ollama serve)
+	LLM_BASE_URL=http://host.docker.internal:11434/v1 $(COMPOSE) up -d --build
 
 .PHONY: down
 down: ## Остановить стек
-	$(COMPOSE) --profile local-llm down
+	$(COMPOSE) down
 
 .PHONY: clean
-clean: ## Остановить стек и удалить тома (БД будет пересоздана и пересидена)
-	$(COMPOSE) --profile local-llm down -v
+clean: ## Остановить стек и удалить тома (БД пересоздастся, модель скачается заново)
+	$(COMPOSE) down -v
 
 .PHONY: logs
 logs: ## Хвост логов всех сервисов

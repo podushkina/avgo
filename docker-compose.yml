@@ -18,52 +18,8 @@ services:
       timeout: 3s
       retries: 10
 
-  api:
-    build:
-      context: .
-      dockerfile: services/api/Dockerfile
-    restart: unless-stopped
-    environment:
-      HTTP_ADDR: ":8081"
-      DATABASE_URL: postgres://${POSTGRES_USER:-antifraud}:${POSTGRES_PASSWORD:-antifraud}@postgres:5432/${POSTGRES_DB:-antifraud}?sslmode=disable
-      LLM_ENABLED: ${LLM_ENABLED:-true}
-      LLM_PROVIDER: ${LLM_PROVIDER:-openai_compat}
-      LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:11434/v1}
-      LLM_MODEL: ${LLM_MODEL:-qwen2.5:7b}
-      LLM_API_KEY: ${LLM_API_KEY:-}
-      LLM_TIMEOUT: ${LLM_TIMEOUT:-30s}
-      EXAM_MAX_CYCLES: ${EXAM_MAX_CYCLES:-8}
-      EXAM_SESSION_TTL: ${EXAM_SESSION_TTL:-24h}
-      EXAM_MESSAGE_LIMIT: ${EXAM_MESSAGE_LIMIT:-1000}
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      ollama-pull:
-        condition: service_completed_successfully
-        required: false
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8081/healthz"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-      start_period: 20s
-
-
-  web:
-    build:
-      context: ./frontend
-    restart: unless-stopped
-    ports:
-      - "8080:80"
-    depends_on:
-      api:
-        condition: service_healthy
-
   ollama:
     image: ollama/ollama:latest
-    profiles: ["local-llm"]
     restart: unless-stopped
     ports:
       - "127.0.0.1:11435:11434"
@@ -78,7 +34,6 @@ services:
 
   ollama-pull:
     image: ollama/ollama:latest
-    profiles: ["local-llm"]
     depends_on:
       ollama:
         condition: service_healthy
@@ -87,6 +42,47 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command: ['ollama pull "${LLM_MODEL:-qwen2.5:7b}"']
     restart: "no"
+
+  api:
+    build:
+      context: .
+      dockerfile: services/api/Dockerfile
+    restart: unless-stopped
+    environment:
+      HTTP_ADDR: ":8081"
+      DATABASE_URL: postgres://${POSTGRES_USER:-antifraud}:${POSTGRES_PASSWORD:-antifraud}@postgres:5432/${POSTGRES_DB:-antifraud}?sslmode=disable
+      LLM_ENABLED: ${LLM_ENABLED:-true}
+      LLM_PROVIDER: ${LLM_PROVIDER:-openai_compat}
+      LLM_BASE_URL: ${LLM_BASE_URL:-http://ollama:11434/v1}
+      LLM_MODEL: ${LLM_MODEL:-qwen2.5:7b}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_TIMEOUT: ${LLM_TIMEOUT:-30s}
+      EXAM_MAX_CYCLES: ${EXAM_MAX_CYCLES:-8}
+      EXAM_SESSION_TTL: ${EXAM_SESSION_TTL:-24h}
+      EXAM_MESSAGE_LIMIT: ${EXAM_MESSAGE_LIMIT:-1000}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ollama-pull:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8081/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+
+  web:
+    build:
+      context: ./frontend
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    depends_on:
+      api:
+        condition: service_healthy
 
 volumes:
   pgdata:
