@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/avito-antifraud/api/internal/apidocs"
 	"github.com/avito-antifraud/api/internal/apierr"
 	"github.com/avito-antifraud/api/internal/config"
 	"github.com/avito-antifraud/api/internal/exam"
@@ -54,6 +55,8 @@ func (s *Server) Routes() http.Handler {
 		handler http.HandlerFunc
 	}{
 		{http.MethodGet, "/healthz", s.handleHealth},
+		{http.MethodGet, "/openapi.yaml", apidocs.SpecHandler},
+		{http.MethodGet, "/docs", apidocs.UIHandler},
 		{http.MethodGet, "/me", s.handleMe},
 		{http.MethodPost, "/users", s.handleCreateUser},
 		{http.MethodPost, "/progress/reset", s.handleResetProgress},

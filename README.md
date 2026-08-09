@@ -161,6 +161,18 @@ HTTP, и жёсткий `Secure: true` сломал бы авторизацию.
 
 ## API
 
+**Интерактивная документация: http://localhost:8080/api/v1/docs** (Swagger UI).
+Спецификация — `/api/v1/openapi.yaml`, вшита в бинарник через `embed.FS`.
+
+Спека написана вручную, а не сгенерирована `swaggo`: тот собирает документацию из
+комментариев в коде, а в этом проекте комментарии в коде не пишутся. Отдельный файл
+`services/api/internal/apidocs/openapi.yaml` заодно позволяет описать примеры и подводные
+камни, которых в аннотациях не выразить. От рассинхрона со ссылками и кодами ошибок
+защищают тесты в `internal/apidocs`.
+
+Swagger UI подтягивает свои файлы с CDN. Без интернета страница покажет ссылку на
+`openapi.yaml` — само API при этом работает.
+
 Базовый путь `/api/v1`. Те же ручки доступны и без версии (`/api/...`) — какой префикс возьмёт
 клиент, решается при стыковке. Пользователь анонимный, идентификация через httpOnly-куку
 `antiscam_session`; клиент куку не читает и не шлёт в теле.
@@ -179,6 +191,8 @@ HTTP, и жёсткий `Secure: true` сломал бы авторизацию.
 | `POST` | `/exam/finish` | `{role}` | `{verdict, explanation, isFinished}` |
 | `GET`/`POST` | `/results` | `?role=` или `{role}` | `{role, training, exam, score, grade, strengths, weaknesses, tips}` |
 | `GET` | `/healthz` | — | `{status}` |
+| `GET` | `/docs` | — | Swagger UI |
+| `GET` | `/openapi.yaml` | — | Спецификация OpenAPI 3.0 |
 
 Особенности, о которые легко споткнуться:
 
@@ -373,6 +387,7 @@ cd frontend && yarn lint        # ESLint, 0 замечаний
 ├── services/api/                 единственный бэкенд-сервис
 │   ├── cmd/server/
 │   └── internal/
+│       ├── apidocs/              openapi.yaml и Swagger UI
 │       ├── domain/               статусы прогресса, вердикт, подсчёт балла
 │       ├── exam/                 классификатор реплик со схемой JSON
 │       ├── storage/              доступ к PostgreSQL
