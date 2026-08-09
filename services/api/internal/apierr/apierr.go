@@ -18,6 +18,7 @@ const (
 	CodeRateLimited            = "RATE_LIMITED"
 	CodeResultsNotReady        = "RESULTS_NOT_READY"
 	CodeLLMUnavailable         = "LLM_UNAVAILABLE"
+	CodeNotFound               = "NOT_FOUND"
 	CodeBadRequest             = "BAD_REQUEST"
 	CodeInternal               = "INTERNAL"
 )

@@ -24,6 +24,13 @@ const (
 	cookieMaxAge  = 180 * 24 * 60 * 60
 )
 
+var apiPrefixes = []string{"/api", "/api/v1"}
+
+func handleUnknownAPIPath(w http.ResponseWriter, r *http.Request) {
+	apierr.Write(w, apierr.New(http.StatusNotFound, apierr.CodeNotFound,
+		"Неизвестная ручка "+r.Method+" "+r.URL.Path+". Список доступных - в /api/docs"))
+}
+
 type Server struct {
 	store      *storage.Store
 	client     llm.Client
@@ -46,14 +53,14 @@ func NewServer(store *storage.Store, client llm.Client, cfg config.Config, log *
 	}
 }
 
-func (s *Server) Routes() http.Handler {
-	mux := http.NewServeMux()
+type route struct {
+	method  string
+	path    string
+	handler http.HandlerFunc
+}
 
-	routes := []struct {
-		method  string
-		path    string
-		handler http.HandlerFunc
-	}{
+func (s *Server) routeTable() []route {
+	return []route{
 		{http.MethodGet, "/healthz", s.handleHealth},
 		{http.MethodGet, "/openapi.yaml", apidocs.SpecHandler},
 		{http.MethodGet, "/docs", apidocs.UIHandler},
@@ -71,11 +78,19 @@ func (s *Server) Routes() http.Handler {
 		{http.MethodGet, "/results", s.handleResults},
 		{http.MethodPost, "/results", s.handleResults},
 	}
+}
 
-	for _, r := range routes {
-		for _, prefix := range []string{"/api/v1", "/api"} {
+func (s *Server) Routes() http.Handler {
+	mux := http.NewServeMux()
+
+	for _, r := range s.routeTable() {
+		for _, prefix := range apiPrefixes {
 			mux.HandleFunc(r.method+" "+prefix+r.path, r.handler)
 		}
+	}
+
+	for _, prefix := range apiPrefixes {
+		mux.HandleFunc(prefix+"/", handleUnknownAPIPath)
 	}
 	mux.HandleFunc("GET /healthz", s.handleHealth)
 

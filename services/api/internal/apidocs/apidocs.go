@@ -8,6 +8,8 @@ import (
 //go:embed openapi.yaml
 var spec []byte
 
+func Spec() []byte { return spec }
+
 const swaggerUIVersion = "5.30.2"
 
 var page = []byte(`<!doctype html>
