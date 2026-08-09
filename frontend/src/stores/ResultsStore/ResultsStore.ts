@@ -1,10 +1,10 @@
 import { makeAutoObservable } from 'mobx';
 
+import { api } from '@/shared/api';
+
 import type { ExamVerdict } from '../ExamStore';
 import type { Role } from '../UserStore';
 import { LoadingStageModel } from '../models';
-
-import { MOCK_RESULTS } from './mocks';
 
 export type ResultsResponse = {
   role: Role;
@@ -18,11 +18,6 @@ export type ResultsResponse = {
   };
   tips: string[];
 };
-
-const delay = (ms: number) =>
-  new Promise<void>((resolve) => {
-    setTimeout(resolve, ms);
-  });
 
 class ResultsStore {
   results: ResultsResponse | null = null;
@@ -42,10 +37,7 @@ class ResultsStore {
     this.results = null;
 
     try {
-      await delay(700);
-
-      // Mock POST /results { role } — anonymous user comes from the httpOnly cookie
-      this.results = { ...MOCK_RESULTS[role] };
+      this.results = await api.post<ResultsResponse>('/api/results', { role });
       this.resultsStage.success();
     } catch {
       this.resultsStage.error();

@@ -1,16 +1,9 @@
 import { makeAutoObservable } from 'mobx';
 
+import { api } from '@/shared/api';
+
 import type { Role } from '../UserStore';
 import { LoadingStageModel } from '../models';
-
-import {
-  MOCK_EXAM_EXPLANATIONS,
-  MOCK_EXAM_FINAL_MESSAGES,
-  MOCK_EXAM_GREETINGS,
-  MOCK_EXAM_MESSAGES_LIMIT,
-  MOCK_EXAM_REPLIES,
-  MOCK_EXAM_RISKY_PATTERNS,
-} from './mocks';
 
 export type ExamAuthor = 'user' | 'assistant';
 
@@ -22,6 +15,10 @@ export type ExamMessage = {
   text: string;
 };
 
+export type ExamStartResponse = {
+  message: string;
+};
+
 export type ExamReplyResponse = {
   message: string;
 
@@ -31,19 +28,6 @@ export type ExamReplyResponse = {
   explanation: string | null;
 };
 
-const delay = (ms: number) =>
-  new Promise<void>((resolve) => {
-    setTimeout(resolve, ms);
-  });
-
-const isRiskyAnswer = (text: string) => {
-  const normalized = text.toLowerCase();
-
-  return MOCK_EXAM_RISKY_PATTERNS.some((pattern) =>
-    normalized.includes(pattern),
-  );
-};
-
 class ExamStore {
   messages: ExamMessage[] = [];
   verdict: ExamVerdict | null = null;
@@ -51,9 +35,6 @@ class ExamStore {
 
   startStage = new LoadingStageModel();
   replyStage = new LoadingStageModel();
-
-  private _replyIndex = 0;
-  private _isRiskyDialog = false;
 
   constructor() {
     makeAutoObservable(
@@ -83,19 +64,18 @@ class ExamStore {
     this.messages = [];
     this.verdict = null;
     this.explanation = null;
-    this._replyIndex = 0;
-    this._isRiskyDialog = false;
     this.replyStage.reset();
 
     try {
-      await delay(600);
+      const response = await api.get<ExamStartResponse>(
+        `/api/exam/start?role=${role}`,
+      );
 
-      // Mock GET /exam/start?role={role}
       this.messages = [
         {
           id: 'assistant-0',
           author: 'assistant',
-          text: MOCK_EXAM_GREETINGS[role],
+          text: response.message,
         },
       ];
       this.startStage.success();
@@ -120,10 +100,10 @@ class ExamStore {
     this.replyStage.loading();
 
     try {
-      await delay(800);
-
-      // Mock POST /exam/message { role, text } — reply comes from the AI model
-      const reply = this._buildReply(role, trimmed);
+      const reply = await api.post<ExamReplyResponse>('/api/exam/message', {
+        role,
+        text: trimmed,
+      });
 
       this.messages.push({
         id: `assistant-${this.messages.length}`,
@@ -142,41 +122,8 @@ class ExamStore {
     this.messages = [];
     this.verdict = null;
     this.explanation = null;
-    this._replyIndex = 0;
-    this._isRiskyDialog = false;
     this.startStage.reset();
     this.replyStage.reset();
-  }
-
-  private _buildReply(role: Role, text: string): ExamReplyResponse {
-    if (isRiskyAnswer(text)) {
-      this._isRiskyDialog = true;
-    }
-
-    this._replyIndex += 1;
-
-    const isFinished =
-      this._isRiskyDialog || this._replyIndex >= MOCK_EXAM_MESSAGES_LIMIT;
-
-    if (!isFinished) {
-      const replies = MOCK_EXAM_REPLIES[role];
-
-      return {
-        message: replies[(this._replyIndex - 1) % replies.length],
-        isFinished: false,
-        verdict: null,
-        explanation: null,
-      };
-    }
-
-    const verdict: ExamVerdict = this._isRiskyDialog ? 'failed' : 'passed';
-
-    return {
-      message: MOCK_EXAM_FINAL_MESSAGES[verdict],
-      isFinished: true,
-      verdict,
-      explanation: MOCK_EXAM_EXPLANATIONS[verdict],
-    };
   }
 }
 

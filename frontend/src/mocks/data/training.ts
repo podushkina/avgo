@@ -1,6 +1,5 @@
-import type { Role } from '../UserStore';
-
-import type { TrainingStepResponse } from './TrainingStore';
+import type { TrainingStepResponse } from '@/stores/TrainingStore';
+import type { Role } from '@/stores/UserStore';
 
 /** Full mock step: client-facing fields + server-only answer check. */
 export type MockTrainingStep = TrainingStepResponse & {
@@ -8,7 +7,7 @@ export type MockTrainingStep = TrainingStepResponse & {
   explanation: string;
 };
 
-export const MOCK_TRAINING_STEPS: Record<Role, MockTrainingStep[]> = {
+export const TRAINING_STEPS: Record<Role, MockTrainingStep[]> = {
   buyer: [
     {
       currentStep: 1,

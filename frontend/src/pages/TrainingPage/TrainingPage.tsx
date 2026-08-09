@@ -21,10 +21,7 @@ const TrainingPage = observer(() => {
     }
 
     userStore.setRole(role);
-    void trainingStore.fetchCurrentStep(
-      role,
-      userStore.getProgress(role).training.currentStep,
-    );
+    void trainingStore.fetchCurrentStep(role);
   }, [role, userStore, trainingStore]);
 
   if (!role) {
@@ -78,10 +75,7 @@ const TrainingPage = observer(() => {
 
   const handleNext = () => {
     if (trainingStore.hasNextStep) {
-      void trainingStore.fetchCurrentStep(
-        role,
-        userStore.getProgress(role).training.currentStep,
-      );
+      void trainingStore.fetchCurrentStep(role);
 
       return;
     }

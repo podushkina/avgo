@@ -1,8 +1,8 @@
 import { makeAutoObservable } from 'mobx';
 
-import { LoadingStageModel } from '../models';
+import { api } from '@/shared/api';
 
-import { MOCK_ME_RESPONSE, MOCK_TOTAL_TRAINING_STEPS } from './mocks';
+import { LoadingStageModel } from '../models';
 
 export type Role = 'buyer' | 'seller';
 
@@ -29,6 +29,10 @@ export type MeResponse = {
   user: MeUser | null;
 };
 
+export type CreateUserResponse = {
+  user: MeUser;
+};
+
 export type UserProfile = {
   name: string;
   age: string;
@@ -47,7 +51,7 @@ export const hasRoleProgress = (progress: RoleProgress): boolean =>
 const emptyProgress = (): RoleProgress => ({
   training: {
     currentStep: 0,
-    totalSteps: MOCK_TOTAL_TRAINING_STEPS,
+    totalSteps: 0,
   },
   isExamPassed: false,
 });
@@ -56,11 +60,6 @@ const cloneProgress = (progress: RoleProgress): RoleProgress => ({
   training: { ...progress.training },
   isExamPassed: progress.isExamPassed,
 });
-
-const delay = (ms: number) =>
-  new Promise<void>((resolve) => {
-    setTimeout(resolve, ms);
-  });
 
 class UserStore {
   exists = false;
@@ -142,10 +141,9 @@ class UserStore {
     this.meStage.loading();
 
     try {
-      await delay(500);
+      const response = await api.get<MeResponse>('/api/me');
 
-      // Mock GET /me — existing anonymous user
-      this.applyMeResponse(MOCK_ME_RESPONSE);
+      this.applyMeResponse(response);
       this.meStage.success();
     } catch {
       this.meStage.error();
@@ -156,13 +154,13 @@ class UserStore {
     this.submitStage.loading();
 
     try {
-      await delay(400);
+      const response = await api.post<CreateUserResponse>('/api/users', {
+        name: profile.name,
+        age: profile.age,
+        gender: profile.gender,
+      });
 
-      // Mock POST /users { name, age, gender }
-      this.setProfile(profile);
-      this.exists = true;
-      this.buyer = emptyProgress();
-      this.seller = emptyProgress();
+      this.applyMeResponse({ exists: true, user: response.user });
       this.submitStage.success();
     } catch {
       this.submitStage.error();
@@ -173,13 +171,14 @@ class UserStore {
     this.resetStage.loading();
 
     try {
-      await delay(400);
+      const progress = await api.post<RoleProgress>('/api/progress/reset', {
+        role,
+      });
 
-      // Mock POST /progress/reset { role }
       if (role === 'buyer') {
-        this.buyer = emptyProgress();
+        this.buyer = cloneProgress(progress);
       } else {
-        this.seller = emptyProgress();
+        this.seller = cloneProgress(progress);
       }
 
       this.resetStage.success();

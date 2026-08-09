@@ -1,8 +1,7 @@
-import type { Role } from '../UserStore';
+import type { ResultsResponse } from '@/stores/ResultsStore';
+import type { Role } from '@/stores/UserStore';
 
-import type { ResultsResponse } from './ResultsStore';
-
-export const MOCK_RESULTS: Record<Role, ResultsResponse> = {
+export const RESULTS_BY_ROLE: Record<Role, ResultsResponse> = {
   buyer: {
     role: 'buyer',
     training: {

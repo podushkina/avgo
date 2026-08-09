@@ -18,11 +18,12 @@ Instructions for AI agents working on this frontend.
 src/
   App/           # root UI, router, app-level wiring
   configs/       # app-level config (ROUTES, …)
+  mocks/         # MSW browser worker, handlers, in-memory db, fixture data
   stores/        # MobX stores (RootStore singleton, UserStore, …)
   pages/         # route pages; connect to the store here
   layouts/       # shells: BaseLayout, Header, Footer
-  shared/        # reusable domain-free UI (add when needed)
-  index.tsx      # createRoot entry
+  shared/        # reusable domain-free UI + api client
+  index.tsx      # createRoot entry (starts MSW in DEV)
 ```
 
 - Do not create both `src/app` and `src/App` — macOS is case-insensitive and they collide.
@@ -61,9 +62,11 @@ Rules:
 
 ## Mocks / API
 
-- All mock server requests **must** use an artificial delay (e.g. `await` + `setTimeout`, ~300–800ms) so loading state is visible and it is clear that a request is in progress.
-- Drive UI from `LoadingStageModel` (`loading` → `success` / `error`) around every mock call; do not resolve instantly.
-- Keep all mock objects/data in separate files (e.g. `mocks.ts` or `mocks/` next to the store or feature); do not inline large mock payloads inside store methods.
+- Stores talk to the backend via `fetch` (`src/shared/api`) on `/api/*` paths. Do not put mock responses or artificial `setTimeout` delays inside stores.
+- In local dev, MSW (`src/mocks/`) intercepts `/api/*`: handlers + in-memory `db` + fixture data under `src/mocks/data/`. Delays (~300–800ms) live in MSW handlers via `delay()` from `msw`.
+- Drive UI from `LoadingStageModel` (`loading` → `success` / `error`) around every API call.
+- MSW starts from `src/index.tsx` when `import.meta.env.DEV` and `VITE_ENABLE_MSW` is not `'false'`. Set `VITE_ENABLE_MSW=false` to hit a real backend through the Vite `/api` proxy.
+- Keep fixture payloads in `src/mocks/data/`; do not inline large mock payloads in stores or handlers.
 
 ## Commands
 

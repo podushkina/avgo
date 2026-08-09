@@ -1,9 +1,8 @@
-import type { Role } from '../UserStore';
-
-import type { ExamVerdict } from './ExamStore';
+import type { ExamVerdict } from '@/stores/ExamStore';
+import type { Role } from '@/stores/UserStore';
 
 /** Первое сообщение, которое ИИ-модель присылает сама при входе в экзамен. */
-export const MOCK_EXAM_GREETINGS: Record<Role, string> = {
+export const EXAM_GREETINGS: Record<Role, string> = {
   buyer:
     'Здравствуйте! Вижу, вы интересовались смартфоном. Он ещё свободен, могу отложить именно для вас.',
   seller:
@@ -11,7 +10,7 @@ export const MOCK_EXAM_GREETINGS: Record<Role, string> = {
 };
 
 /** Ответы ИИ-модели по кругу — имитация диалога с бэкенда. */
-export const MOCK_EXAM_REPLIES: Record<Role, string[]> = {
+export const EXAM_REPLIES: Record<Role, string[]> = {
   buyer: [
     'Отлично! Чтобы я снял объявление, скиньте небольшую предоплату на карту — 2000 ₽, остальное при получении.',
     'Через сервис доставки дороже выйдет. Давайте я вам ссылку пришлю, там оплата быстрее проходит.',
@@ -25,12 +24,12 @@ export const MOCK_EXAM_REPLIES: Record<Role, string[]> = {
 };
 
 /** Последняя реплика модели: диалог закончен, дальше только вердикт. */
-export const MOCK_EXAM_FINAL_MESSAGES: Record<ExamVerdict, string> = {
+export const EXAM_FINAL_MESSAGES: Record<ExamVerdict, string> = {
   passed: 'Ладно, с вами не получилось. Удачи!',
   failed: 'Спасибо, данных достаточно. Приятно иметь с вами дело!',
 };
 
-export const MOCK_EXAM_EXPLANATIONS: Record<ExamVerdict, string> = {
+export const EXAM_EXPLANATIONS: Record<ExamVerdict, string> = {
   passed:
     'Ты не отправил предоплату, не перешёл по сторонней ссылке и не назвал данные карты. Все переводы и переписку держи внутри Авито — так мошеннику не за что зацепиться.',
   failed:
@@ -38,10 +37,10 @@ export const MOCK_EXAM_EXPLANATIONS: Record<ExamVerdict, string> = {
 };
 
 /** Максимум реплик пользователя, после которых модель выносит вердикт. */
-export const MOCK_EXAM_MESSAGES_LIMIT = 3;
+export const EXAM_MESSAGES_LIMIT = 3;
 
 /** Признаки того, что пользователь попался на уловку мошенника. */
-export const MOCK_EXAM_RISKY_PATTERNS = [
+export const EXAM_RISKY_PATTERNS = [
   'карт',
   'cvv',
   'cvc',

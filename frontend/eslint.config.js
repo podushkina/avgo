@@ -14,7 +14,7 @@ import {
 // console.log(vanillaExtract.configs.recommended);
 
 export default defineConfig([
-  globalIgnores(['.yarn/**', '**/build/**', '.pnp.*']),
+  globalIgnores(['.yarn/**', '**/build/**', '.pnp.*', 'public/**']),
 
   {
     files: ['src/**/*.css.ts'],

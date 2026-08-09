@@ -1,8 +1,6 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 
-import App from './App';
-
 import '@/styles/index.css';
 
 const rootElement = document.getElementById('root');
@@ -11,10 +9,26 @@ if (!rootElement) {
   throw new Error('Root container not found');
 }
 
-const root = createRoot(rootElement);
+async function enableMocking() {
+  if (!import.meta.env.DEV || import.meta.env.VITE_ENABLE_MSW === 'false') {
+    return;
+  }
 
-root.render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
-);
+  const { worker } = await import('./mocks/browser');
+
+  await worker.start({
+    onUnhandledRequest: 'bypass',
+    quiet: true,
+  });
+}
+
+void enableMocking().then(async () => {
+  const { default: App } = await import('./App');
+  const root = createRoot(rootElement);
+
+  root.render(
+    <React.StrictMode>
+      <App />
+    </React.StrictMode>,
+  );
+});
