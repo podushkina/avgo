@@ -21,3 +21,5 @@ node_modules
 dist
 build
 __generated-style-types__
+.env
+.env.local
