@@ -1,7 +1,6 @@
 import { makeAutoObservable } from 'mobx';
 
-import { api } from '@/shared/api';
-
+import { api } from '@/api';
 import type { ExamVerdict } from '../ExamStore';
 import type { Role } from '../UserStore';
 import { LoadingStageModel } from '../models';
@@ -17,6 +16,10 @@ export type ResultsResponse = {
     explanation: string;
   };
   tips: string[];
+  strengths?: string[];
+  weaknesses?: string[];
+  score?: number;
+  grade?: string;
 };
 
 class ResultsStore {
@@ -37,7 +40,7 @@ class ResultsStore {
     this.results = null;
 
     try {
-      this.results = await api.post<ResultsResponse>('/api/results', { role });
+      this.results = await api.post<ResultsResponse>('/results', { role });
       this.resultsStage.success();
     } catch {
       this.resultsStage.error();

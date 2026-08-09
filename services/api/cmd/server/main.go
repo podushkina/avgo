@@ -18,6 +18,8 @@ import (
 
 	"github.com/avito-antifraud/api/internal/config"
 	"github.com/avito-antifraud/api/internal/httpapi"
+	"github.com/avito-antifraud/api/internal/httpx"
+	"github.com/avito-antifraud/api/internal/llm"
 	"github.com/avito-antifraud/api/internal/migrations"
 	"github.com/avito-antifraud/api/internal/storage"
 )
@@ -50,9 +52,25 @@ func run(log *slog.Logger) error {
 	}
 	defer pool.Close()
 
+	var client llm.Client
+	switch {
+	case !cfg.LLMEnabled:
+		client = llm.NewScripted()
+		log.Info("LLM выключен: используется сценарный стаб")
+	case cfg.LLMProvider == config.ProviderMock:
+		client = llm.NewMock()
+		log.Info("используется mock-провайдер модели")
+	default:
+		client = llm.NewOpenAICompat(cfg.LLMBaseURL, cfg.LLMModel, cfg.LLMAPIKey, cfg.LLMTimeout)
+		log.Info("провайдер модели", "base_url", cfg.LLMBaseURL, "model", cfg.LLMModel)
+	}
+
+	handler := httpapi.NewServer(storage.New(pool), client, cfg, log).Routes()
+	handler = httpx.TimeoutAndLog(log, cfg.LLMTimeout+30*time.Second)(handler)
+
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           httpapi.NewServer(storage.New(pool), log).Routes(),
+		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

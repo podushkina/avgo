@@ -1,7 +1,3 @@
 go 1.26
 
-use (
-	./pkg/httpx
-	./services/ai
-	./services/api
-)
+use ./services/api

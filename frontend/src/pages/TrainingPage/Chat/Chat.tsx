@@ -52,7 +52,7 @@ const Chat = ({
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 border-t p-4 sm:p-5">
+      <div className="grid grid-cols-1 gap-3 border-t p-4 sm:grid-cols-2 sm:p-5">
         {variants.map((variant) => (
           <Button
             key={variant.id}
@@ -61,11 +61,12 @@ const Chat = ({
             size="lg"
             disabled={isBusy || isSubmitted}
             onClick={() => onAnswer(variant.id)}
+            className="h-auto min-h-11 w-full items-start justify-start gap-2 px-4 py-3 text-left leading-snug whitespace-normal"
           >
             {isSubmitting && selectedAnswerId === variant.id ? (
-              <Spinner className="size-4" />
+              <Spinner className="mt-0.5 size-4 shrink-0" />
             ) : null}
-            {variant.text}
+            <span className="min-w-0 flex-1">{variant.text}</span>
           </Button>
         ))}
       </div>

@@ -47,12 +47,12 @@ func TestLoad_APIConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			os.Unsetenv("HTTP_ADDR")
-			os.Unsetenv("DATABASE_URL")
+			_ = os.Unsetenv("HTTP_ADDR")
+			_ = os.Unsetenv("DATABASE_URL")
 
 			for k, v := range tt.env {
 				if v != "" {
-					os.Setenv(k, v)
+					_ = os.Setenv(k, v)
 				}
 			}
 

@@ -33,19 +33,16 @@ logs: ## Хвост логов всех сервисов
 	$(COMPOSE) logs -f --tail=100
 
 .PHONY: test
-test: ## Go-тесты обоих сервисов
+test: ## Go-тесты с детектором гонок
 	cd services/api && go test -race ./...
-	cd services/ai && go test -race ./...
 
 .PHONY: lint
-lint: ## golangci-lint по обоим сервисам
+lint: ## golangci-lint
 	cd services/api && golangci-lint run ./...
-	cd services/ai && golangci-lint run ./...
 
 .PHONY: fmt
 fmt: ## Форматирование Go-кода
 	cd services/api && go fmt ./...
-	cd services/ai && go fmt ./...
 
 .PHONY: bench-llm
 bench-llm: ## Сравнить модели-кандидаты на промпте мошенника (русский, скорость и качество)
@@ -53,4 +50,8 @@ bench-llm: ## Сравнить модели-кандидаты на промпт
 
 .PHONY: smoke
 smoke: ## Сквозная проверка API поднятого стека
-	@./scripts/smoke.sh
+	@bash ./scripts/smoke.sh
+
+.PHONY: front-lint
+front-lint: ## ESLint фронтенда
+	cd frontend && yarn lint
