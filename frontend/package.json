@@ -10,7 +10,7 @@
     "lint:fix": "yarn lint:code --fix",
     "lint:code": "eslint .",
     "precommit": "yarn lint:fix",
-    "prepare": "husky"
+    "prepare": "cd .. && husky frontend/.husky"
   },
   "devDependencies": {
     "@antebudimir/eslint-plugin-vanilla-extract": "^1.16.0",
