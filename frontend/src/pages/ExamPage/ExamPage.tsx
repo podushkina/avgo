@@ -82,8 +82,11 @@ const ExamPage = observer(() => {
   };
 
   const handleGoToResults = () => {
-    if (examStore.isPassed) {
-      userStore.markExamPassed(role);
+    if (examStore.verdict) {
+      userStore.setStatus(
+        role,
+        examStore.verdict === 'passed' ? 'exam_passed' : 'exam_failed',
+      );
     }
 
     void navigate(ROUTES.results.create(role));

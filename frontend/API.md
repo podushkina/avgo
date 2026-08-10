@@ -4,11 +4,10 @@
 
 ## Базовый путь
 
-Все пути ниже указаны **относительно `/api`**. Алиас `/api/v1` оставлен для совместимости и работает так же.
+Все пути ниже указаны **относительно `/api`**.
 
 ```
 GET /api/me         ✅ 200 application/json
-GET /api/v1/me      ✅ 200 application/json   ← алиас, работает так же
 GET /me             ✅ 404 application/json   ← честная ошибка, а не молчаливый HTML
 ```
 
@@ -31,32 +30,29 @@ type Role = 'buyer' | 'seller';
 type Gender = 'male' | 'female';
 type ExamVerdict = 'passed' | 'failed';
 
-type RoleProgress = {
-  training: {
-    currentStep: number;
-    totalSteps: number;
-  };
-  isExamPassed: boolean;
+type ProgressStatus =
+  | 'not_started'
+  | 'training_in_progress'
+  | 'training_passed'
+  | 'exam_in_progress'
+  | 'exam_passed'
+  | 'exam_failed';
 
-  // сверх контракта, можно игнорировать
-  status?:
-    | 'not_started'
-    | 'training_in_progress'
-    | 'training_passed'
-    | 'exam_in_progress'
-    | 'exam_passed'
-    | 'exam_failed';
-  isTrainingPassed?: boolean;
+type RoleProgress = {
+  status: ProgressStatus;
 };
 ```
 
-`training.currentStep`:
+Указатель шагов обучения в прогрессе не отдаётся — его клиент берёт из
+`/training/current-step`. По `status` выбирается кнопка на главной:
 
-- `0` — обучение не начато; пользователь на первом шаге
-- `1 … totalSteps - 1` — обучение в процессе
-- `totalSteps` — обучение пройдено
-
-По `status` можно решать, какую кнопку показать, не собирая состояние на клиенте.
+| `status` | Кнопка |
+| --- | --- |
+| `not_started` | Начать обучение |
+| `training_in_progress` | Продолжить обучение |
+| `training_passed` | Сдать экзамен |
+| `exam_in_progress` | Продолжить экзамен |
+| `exam_passed` / `exam_failed` | Посмотреть результаты |
 
 ---
 
@@ -64,7 +60,7 @@ type RoleProgress = {
 
 ### `GET /me`
 
-Кто вызывает: при создании `UserStore` (любая страница приложения).
+Кто вызывает: `UserStore.init()` при старте приложения.
 
 **Request:** без body, только cookie.
 
@@ -110,7 +106,7 @@ type CreateUserResponse = {
     name: string;
     age: string;
     gender: Gender;
-    buyer: RoleProgress; // currentStep: 0, isExamPassed: false
+    buyer: RoleProgress; // status: not_started
     seller: RoleProgress;
   };
 };
@@ -135,7 +131,7 @@ type ResetProgressRequest = {
 **Response:**
 
 ```ts
-type ResetProgressResponse = RoleProgress; // currentStep: 0, isExamPassed: false
+type ResetProgressResponse = RoleProgress; // status: not_started
 ```
 
 Есть алиас с ролью в пути: `POST /progress/reset/{role}`, тело не нужно.
@@ -162,7 +158,7 @@ type TrainingStepResponse = {
 };
 ```
 
-> ⚠️ Здесь `currentStep` — **1-based номер текущего шага**, а в `RoleProgress.training.currentStep` — число **уже завершённых** шагов. Поля называются одинаково, но означают разное.
+`currentStep` здесь — **1-based номер текущего шага** обучения.
 
 Правильный ответ наружу не отдаётся: в `variants` только `id` и `text`. Проверка выполняется на сервере.
 
@@ -388,7 +384,7 @@ type ResultsResponse = {
 | `LLM_UNAVAILABLE`          | 503    | Модель недоступна                               |
 | `NOT_FOUND`                | 404    | Неизвестный путь                                |
 
-У `STEP_MISMATCH` в `error.details` приходит актуальный `RoleProgress` — им можно сразу поправить состояние на клиенте.
+У `STEP_MISMATCH` в `error.details` приходит актуальный `RoleProgress` (`{ status }`).
 
 ---
 

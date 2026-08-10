@@ -42,7 +42,7 @@ var page = []byte(`<!doctype html>
      и доступна без интернета:</p>
   <p><a href="openapi.yaml">openapi.yaml</a> — открывается в
      <a href="https://editor.swagger.io">editor.swagger.io</a> или любом клиенте OpenAPI.</p>
-  <p>Само API при этом работает: <code>curl localhost:8080/api/v1/healthz</code></p>
+  <p>Само API при этом работает: <code>curl localhost:8080/api/healthz</code></p>
 </div>
 <script src="https://unpkg.com/swagger-ui-dist@` + swaggerUIVersion + `/swagger-ui-bundle.js"
         onerror="document.getElementById('offline').style.display='block'"></script>

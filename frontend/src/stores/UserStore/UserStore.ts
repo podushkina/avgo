@@ -8,12 +8,16 @@ export type Role = 'buyer' | 'seller';
 
 export type Gender = 'male' | 'female';
 
+export type ProgressStatus =
+  | 'not_started'
+  | 'training_in_progress'
+  | 'training_passed'
+  | 'exam_in_progress'
+  | 'exam_passed'
+  | 'exam_failed';
+
 export type RoleProgress = {
-  training: {
-    currentStep: number;
-    totalSteps: number;
-  };
-  isExamPassed: boolean;
+  status: ProgressStatus;
 };
 
 export type MeUser = {
@@ -38,23 +42,24 @@ export type UserProfile = {
 export const isRole = (value: unknown): value is Role =>
   value === 'buyer' || value === 'seller';
 
-export const isTrainingPassed = (progress: RoleProgress): boolean =>
-  progress.training.currentStep === progress.training.totalSteps;
+export const isTrainingPassed = (status: ProgressStatus): boolean =>
+  status === 'training_passed' ||
+  status === 'exam_in_progress' ||
+  status === 'exam_passed' ||
+  status === 'exam_failed';
+
+export const isExamFinished = (status: ProgressStatus): boolean =>
+  status === 'exam_passed' || status === 'exam_failed';
 
 export const hasRoleProgress = (progress: RoleProgress): boolean =>
-  progress.training.currentStep > 0 || progress.isExamPassed;
+  progress.status !== 'not_started';
 
-const emptyProgress = (totalSteps = 0): RoleProgress => ({
-  training: {
-    currentStep: 0,
-    totalSteps,
-  },
-  isExamPassed: false,
+const emptyProgress = (): RoleProgress => ({
+  status: 'not_started',
 });
 
 const cloneProgress = (progress: RoleProgress): RoleProgress => ({
-  training: { ...progress.training },
-  isExamPassed: progress.isExamPassed,
+  status: progress.status,
 });
 
 class UserStore {
@@ -94,14 +99,8 @@ class UserStore {
     this.role = role;
   }
 
-  setTrainingProgress(role: Role, currentStep: number) {
-    const progress = this.getProgress(role);
-
-    progress.training.currentStep = currentStep;
-  }
-
-  markExamPassed(role: Role) {
-    this.getProgress(role).isExamPassed = true;
+  setStatus(role: Role, status: ProgressStatus) {
+    this.getProgress(role).status = status;
   }
 
   applyMeResponse({ exists, user }: MeResponse) {

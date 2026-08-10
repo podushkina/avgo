@@ -33,9 +33,6 @@ check "голый /me для клиента = 404 JSON" "NOT_FOUND" \
     "$(curl -s "$BASE/me" | jqf 'd["error"]["code"]')"
 check "голый /me для браузера = страница" "text/html" \
     "$(curl -so /dev/null -H 'Accept: text/html' -w '%{content_type}' "$BASE/me" | cut -d';' -f1)"
-check "алиас /api/v1 работает" "200" \
-    "$(curl -so /dev/null -w '%{http_code}' "$BASE/api/v1/healthz")"
-
 echo "[3] Аноним без куки"
 ME=$(curl -s -c "$JAR" "$API/me")
 check "exists=false" "False" "$(echo "$ME" | jqf 'd["exists"]')"
@@ -47,7 +44,7 @@ USER=$(curl -s -b "$JAR" -c "$JAR" -X POST "$API/users" \
     -d '{"name":"Тестовый","age":"25-34","gender":"male"}')
 check "имя вернулось"    "Тестовый" "$(echo "$USER" | jqf 'd["user"]["name"]')"
 check "age как строка"   "25-34"    "$(echo "$USER" | jqf 'd["user"]["age"]')"
-check "прогресс buyer"   "0"        "$(echo "$USER" | jqf 'd["user"]["buyer"]["training"]["currentStep"]')"
+check "прогресс buyer"   "not_started" "$(echo "$USER" | jqf 'd["user"]["buyer"]["status"]')"
 check "кука поставлена"  "ok"       "$(grep -q antiscam_session "$JAR" && echo ok || echo none)"
 
 ME=$(curl -s -b "$JAR" "$API/me")
@@ -89,8 +86,7 @@ for i in $(seq 2 "$TOTAL"); do
         -d "{\"role\":\"seller\",\"answer_id\":$ID}" > /dev/null
 done
 ME=$(curl -s -b "$JAR" "$API/me")
-check "обучение пройдено" "True" "$(echo "$ME" | jqf 'd["user"]["seller"]["isTrainingPassed"]')"
-check "currentStep = total" "$TOTAL" "$(echo "$ME" | jqf 'd["user"]["seller"]["training"]["currentStep"]')"
+check "обучение пройдено" "training_passed" "$(echo "$ME" | jqf 'd["user"]["seller"]["status"]')"
 
 echo "[9] Экзамен"
 EX=$(curl -s -b "$JAR" "$API/exam/start?role=seller")
@@ -125,7 +121,6 @@ check "GET /results тоже"     "failed" "$(curl -s -b "$JAR" "$API/results?ro
 echo "[13] Сброс прогресса"
 RST=$(curl -s -b "$JAR" -X POST "$API/progress/reset" \
     -H 'Content-Type: application/json' -d '{"role":"seller"}')
-check "шаг обнулён"      "0"            "$(echo "$RST" | jqf 'd["training"]["currentStep"]')"
 check "статус сброшен"   "not_started"  "$(echo "$RST" | jqf 'd["status"]')"
 check "результат удалён" "RESULTS_NOT_READY" \
     "$(curl -s -b "$JAR" "$API/results?role=seller" | jqf 'd["error"]["code"]')"

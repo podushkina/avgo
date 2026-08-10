@@ -84,7 +84,7 @@ func TestEveryDocumentedPathIsRouted(t *testing.T) {
 func TestUnknownAPIPathReturnsJSONError(t *testing.T) {
 	handler := testServer().Routes()
 
-	for _, path := range []string{"/api/nope", "/api/v1/nope", "/api/exam/nope"} {
+	for _, path := range []string{"/api/nope", "/api/exam/nope"} {
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
 
@@ -100,15 +100,13 @@ func TestUnknownAPIPathReturnsJSONError(t *testing.T) {
 	}
 }
 
-func TestRoutesAreServedUnderBothPrefixes(t *testing.T) {
+func TestRoutesAreServedUnderAPIPrefix(t *testing.T) {
 	handler := testServer().Routes()
 
-	for _, prefix := range []string{"/api", "/api/v1"} {
-		rec := httptest.NewRecorder()
-		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, prefix+"/openapi.yaml", nil))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/openapi.yaml", nil))
 
-		if rec.Code != http.StatusOK {
-			t.Errorf("%s/openapi.yaml: код = %d, ожидался 200", prefix, rec.Code)
-		}
+	if rec.Code != http.StatusOK {
+		t.Errorf("/api/openapi.yaml: код = %d, ожидался 200", rec.Code)
 	}
 }

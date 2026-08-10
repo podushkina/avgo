@@ -31,15 +31,15 @@ func (s *Server) handleCurrentStep(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, "выборка прогресса", err)
 		return
 	}
-	if progress.IsTrainingPassed {
-		apierr.Write(w, apierr.ErrTrainingAlreadyPassed.WithDetails(progress))
+	if progress.Status.IsTrainingPassed() {
+		apierr.Write(w, apierr.ErrTrainingAlreadyPassed.WithDetails(progress.Public()))
 		return
 	}
 
-	stepNo := progress.Training.CurrentStep + 1
+	stepNo := progress.CurrentStep + 1
 	step, err := s.store.StepByNumber(r.Context(), role, stepNo)
 	if errors.Is(err, storage.ErrNotFound) {
-		apierr.Write(w, apierr.ErrTrainingAlreadyPassed.WithDetails(progress))
+		apierr.Write(w, apierr.ErrTrainingAlreadyPassed.WithDetails(progress.Public()))
 		return
 	}
 	if err != nil {
@@ -54,7 +54,7 @@ func (s *Server) handleCurrentStep(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, map[string]any{
 		"currentStep": step.StepNo,
-		"totalSteps":  progress.Training.TotalSteps,
+		"totalSteps":  progress.TotalSteps,
 		"productName": step.ProductName,
 		"message":     step.Message,
 		"variants":    variants,
@@ -103,7 +103,7 @@ func (s *Server) handleAnswer(w http.ResponseWriter, r *http.Request) {
 			s.fail(w, "выборка прогресса", pErr)
 			return
 		}
-		apierr.Write(w, apierr.ErrStepMismatch.WithDetails(progress))
+		apierr.Write(w, apierr.ErrStepMismatch.WithDetails(progress.Public()))
 		return
 	case errors.Is(err, storage.ErrNotFound):
 		apierr.Write(w, apierr.ErrInvalidOption)

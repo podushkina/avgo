@@ -11,7 +11,11 @@ import {
 } from './data/exam';
 import { RESULTS_BY_ROLE } from './data/results';
 import { TRAINING_STEPS } from './data/training';
-import { emptyRoleProgress, INITIAL_ME_RESPONSE } from './data/user';
+import {
+  emptyRoleProgress,
+  INITIAL_ME_RESPONSE,
+  TOTAL_TRAINING_STEPS,
+} from './data/user';
 
 type ExamSession = {
   role: Role;
@@ -26,13 +30,15 @@ type DbState = {
   user: MeUser | null;
   exam: ExamSession | null;
 
+  /** Completed training steps per role — internal mock pointer, not in API. */
+  trainingStep: Record<Role, number>;
+
   /** Correct answers counted per role for results. */
   correctAnswers: Record<Role, number>;
 };
 
 const cloneProgress = (progress: RoleProgress): RoleProgress => ({
-  training: { ...progress.training },
-  isExamPassed: progress.isExamPassed,
+  status: progress.status,
 });
 
 const cloneUser = (user: MeUser): MeUser => ({
@@ -56,6 +62,11 @@ const createInitialState = (): DbState => {
     exists: seed.exists,
     user: seed.user ? cloneUser(seed.user) : null,
     exam: null,
+    trainingStep: {
+      buyer: 0,
+      seller:
+        seed.user?.seller.status === 'exam_passed' ? TOTAL_TRAINING_STEPS : 0,
+    },
     correctAnswers: { buyer: 0, seller: 0 },
   };
 };
@@ -85,6 +96,7 @@ export const mockDb = {
 
     state.exists = true;
     state.user = user;
+    state.trainingStep = { buyer: 0, seller: 0 };
     state.correctAnswers = { buyer: 0, seller: 0 };
     state.exam = null;
 
@@ -104,6 +116,7 @@ export const mockDb = {
       state.user.seller = progress;
     }
 
+    state.trainingStep[role] = 0;
     state.correctAnswers[role] = 0;
 
     if (state.exam?.role === role) {
@@ -124,9 +137,8 @@ export const mockDb = {
   },
 
   getTrainingStep(role: Role) {
-    const progress = this.getProgress(role);
     const steps = TRAINING_STEPS[role];
-    const index = Math.min(progress.training.currentStep, steps.length - 1);
+    const index = Math.min(state.trainingStep[role], steps.length - 1);
     const step = steps[index];
 
     return {
@@ -139,9 +151,8 @@ export const mockDb = {
   },
 
   submitTrainingAnswer(role: Role, answerId: number) {
-    const progress = this.getProgress(role);
     const steps = TRAINING_STEPS[role];
-    const index = Math.min(progress.training.currentStep, steps.length - 1);
+    const index = Math.min(state.trainingStep[role], steps.length - 1);
     const step = steps[index];
     const isCorrect = answerId === step.correctAnswerId;
 
@@ -149,20 +160,27 @@ export const mockDb = {
       state.correctAnswers[role] += 1;
     }
 
-    if (state.user) {
-      const nextStep =
-        step.currentStep < step.totalSteps ? step.currentStep : step.totalSteps;
+    const nextStep =
+      step.currentStep < step.totalSteps ? step.currentStep : step.totalSteps;
 
-      if (role === 'buyer') {
-        state.user.buyer.training.currentStep = nextStep;
-      } else {
-        state.user.seller.training.currentStep = nextStep;
-      }
+    state.trainingStep[role] = nextStep;
+
+    if (state.user) {
+      const roleProgress =
+        role === 'buyer' ? state.user.buyer : state.user.seller;
+
+      roleProgress.status =
+        nextStep >= step.totalSteps
+          ? 'training_passed'
+          : 'training_in_progress';
     }
 
     return {
       isCorrect,
       explanation: step.explanation,
+      currentStep: nextStep,
+      totalSteps: step.totalSteps,
+      isTrainingFinished: nextStep >= step.totalSteps,
     };
   },
 
@@ -174,6 +192,12 @@ export const mockDb = {
       verdict: null,
       explanation: null,
     };
+
+    if (state.user) {
+      const progress = role === 'buyer' ? state.user.buyer : state.user.seller;
+
+      progress.status = 'exam_in_progress';
+    }
 
     return { message: EXAM_GREETINGS[role] };
   },
@@ -219,7 +243,7 @@ export const mockDb = {
     if (state.user) {
       const progress = role === 'buyer' ? state.user.buyer : state.user.seller;
 
-      progress.isExamPassed = verdict === 'passed';
+      progress.status = verdict === 'passed' ? 'exam_passed' : 'exam_failed';
     }
 
     return {
@@ -232,14 +256,13 @@ export const mockDb = {
 
   getResults(role: Role) {
     const base = RESULTS_BY_ROLE[role];
-    const progress = this.getProgress(role);
     const session = state.exam?.role === role ? state.exam : null;
 
     return {
       role,
       training: {
         correctSteps: state.correctAnswers[role],
-        totalSteps: progress.training.totalSteps,
+        totalSteps: TOTAL_TRAINING_STEPS,
       },
       exam: {
         verdict: session?.verdict ?? base.exam.verdict,

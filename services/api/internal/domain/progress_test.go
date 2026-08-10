@@ -29,29 +29,6 @@ func TestStatusFlags(t *testing.T) {
 	}
 }
 
-func TestNewRoleProgressShape(t *testing.T) {
-	p := NewRoleProgress(StatusTrainingInProgress, 2, 6)
-
-	if p.Training.CurrentStep != 2 || p.Training.TotalSteps != 6 {
-		t.Errorf("training = %+v, ожидалось 2 из 6", p.Training)
-	}
-	if p.IsTrainingPassed {
-		t.Error("обучение в процессе не считается пройденным")
-	}
-	if p.IsExamPassed {
-		t.Error("экзамен не сдан")
-	}
-}
-
-func TestNewRoleProgressClampsStep(t *testing.T) {
-	if got := NewRoleProgress(StatusTrainingPassed, 99, 6).Training.CurrentStep; got != 6 {
-		t.Errorf("указатель должен обрезаться до totalSteps, получено %d", got)
-	}
-	if got := NewRoleProgress(StatusNotStarted, -5, 6).Training.CurrentStep; got != 0 {
-		t.Errorf("отрицательный указатель должен становиться 0, получено %d", got)
-	}
-}
-
 func TestNextStatusAfterAnswer(t *testing.T) {
 	if got := NextStatusAfterAnswer(StatusNotStarted, 1, 6); got != StatusTrainingInProgress {
 		t.Errorf("после первого ответа = %v, ожидалось training_in_progress", got)

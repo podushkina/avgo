@@ -142,5 +142,5 @@ func (s *Server) handleResetProgress(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, progress)
+	writeJSON(w, progress.Public())
 }

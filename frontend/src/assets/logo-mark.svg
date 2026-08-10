@@ -1,0 +1,86 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="220"
+  height="220"
+  viewBox="0 0 220 220"
+  fill="none"
+>
+  <defs>
+    <filter
+      id="glowBlue"
+      x="-0.41538462"
+      y="-0.41538462"
+      width="1.8307692"
+      height="1.8307692"
+    >
+      <feGaussianBlur stdDeviation="18" />
+    </filter>
+    <filter
+      id="glowGreen"
+      x="-0.45405405"
+      y="-0.45405405"
+      width="1.9081081"
+      height="1.9081081"
+    >
+      <feGaussianBlur stdDeviation="14" />
+    </filter>
+    <filter
+      id="glowPurple"
+      x="-0.48"
+      y="-0.48"
+      width="1.96"
+      height="1.96"
+    >
+      <feGaussianBlur stdDeviation="12" />
+    </filter>
+    <filter
+      id="glowRed"
+      x="-0.45714286"
+      y="-0.45714286"
+      width="1.9142857"
+      height="1.9142857"
+    >
+      <feGaussianBlur stdDeviation="16" />
+    </filter>
+  </defs>
+
+  <!-- soft colored halo -->
+  <circle
+    cx="88"
+    cy="145"
+    r="52"
+    fill="#08BDF2"
+    opacity="0.30"
+    filter="url(#glowBlue)"
+  />
+  <circle
+    cx="91"
+    cy="74"
+    r="37"
+    fill="#65E856"
+    opacity="0.26"
+    filter="url(#glowGreen)"
+  />
+  <circle
+    cx="154"
+    cy="61"
+    r="30"
+    fill="#7D5CFF"
+    opacity="0.28"
+    filter="url(#glowPurple)"
+  />
+  <circle
+    cx="165"
+    cy="126"
+    r="42"
+    fill="#FF4053"
+    opacity="0.28"
+    filter="url(#glowRed)"
+  />
+
+  <!-- flat logo mark -->
+  <circle cx="88" cy="145" r="52" fill="#09B9EA" />
+  <circle cx="91" cy="74" r="37" fill="#66E654" />
+  <circle cx="154" cy="61" r="30" fill="#7B5BFF" />
+  <circle cx="165" cy="126" r="42" fill="#FF4053" />
+</svg>

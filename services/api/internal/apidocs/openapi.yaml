@@ -10,8 +10,7 @@ info:
     **Идентификация.** Пользователь анонимный, опознаётся по httpOnly-куке `antiscam_session`.
     Кука ставится ответом `POST /users`. Клиент её не читает и не передаёт в теле.
 
-    **Базовый путь.** Все ручки доступны под `/api`. Алиас `/api/v1` оставлен для
-    совместимости и работает так же.
+    **Базовый путь.** Все ручки доступны под `/api`.
 
     Голые пути вида `/me` не обслуживаются: они столкнулись бы со страничными маршрутами
     приложения — `/exam/start` неотличим от `/exam/:role`. Запрос к несуществующему пути
@@ -20,8 +19,6 @@ info:
 servers:
   - url: /api
     description: Основной путь
-  - url: /api/v1
-    description: Алиас с версией, оставлен для совместимости
 
 tags:
   - name: Пользователь
@@ -58,15 +55,9 @@ paths:
                       age: "25-34"
                       gender: male
                       buyer:
-                        training: { currentStep: 6, totalSteps: 6 }
-                        isExamPassed: true
                         status: exam_passed
-                        isTrainingPassed: true
                       seller:
-                        training: { currentStep: 0, totalSteps: 6 }
-                        isExamPassed: false
                         status: not_started
-                        isTrainingPassed: false
 
   /users:
     post:
@@ -163,8 +154,7 @@ paths:
         Правильный ответ наружу не отдаётся: в `variants` только идентификаторы и тексты.
         Проверка выполняется на сервере в `POST /training/answer`.
 
-        `currentStep` здесь — **1-based номер текущего шага**, в отличие от
-        `RoleProgress.training.currentStep`, где это число уже завершённых шагов.
+        `currentStep` здесь — **1-based номер текущего шага** обучения.
       parameters:
         - $ref: "#/components/parameters/RoleQuery"
       responses:
@@ -580,27 +570,13 @@ components:
 
     RoleProgress:
       type: object
-      required: [training, isExamPassed]
+      required: [status]
+      description: |
+        Публичный прогресс роли. Указатель шагов обучения наружу не отдаётся —
+        его клиент получает из `/training/current-step`.
       properties:
-        training:
-          type: object
-          required: [currentStep, totalSteps]
-          properties:
-            currentStep:
-              type: integer
-              description: |
-                Число **завершённых** шагов: 0 — обучение не начато, totalSteps — пройдено.
-                Не путать с `currentStep` в ответе `/training/current-step`.
-              example: 2
-            totalSteps:
-              type: integer
-              example: 6
-        isExamPassed:
-          type: boolean
         status:
           $ref: "#/components/schemas/Status"
-        isTrainingPassed:
-          type: boolean
 
     User:
       type: object

@@ -1,5 +1,5 @@
 import { observer } from 'mobx-react-lite';
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useState, type SubmitEvent } from 'react';
 import { useNavigate } from 'react-router';
 
 import { Button } from '@/components/ui/button';
@@ -15,6 +15,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { ROUTES } from '@/configs/routes';
 import {
   hasRoleProgress,
+  isExamFinished,
   isTrainingPassed,
   rootStore,
   type Gender,
@@ -34,18 +35,24 @@ const getExistingUserAction = (
   role: Role,
   progress: RoleProgress,
 ): { label: string; path: string } => {
-  if (!isTrainingPassed(progress)) {
+  if (!isTrainingPassed(progress.status)) {
     return {
       label:
-        progress.training.currentStep === 0
+        progress.status === 'not_started'
           ? 'Начать обучение'
           : 'Продолжить обучение',
       path: ROUTES.training.create(role),
     };
   }
 
-  if (!progress.isExamPassed) {
-    return { label: 'Сдать экзамен', path: ROUTES.exam.create(role) };
+  if (!isExamFinished(progress.status)) {
+    return {
+      label:
+        progress.status === 'exam_in_progress'
+          ? 'Продолжить экзамен'
+          : 'Сдать экзамен',
+      path: ROUTES.exam.create(role),
+    };
   }
 
   return { label: 'Посмотреть результаты', path: ROUTES.results.create(role) };
@@ -80,7 +87,7 @@ const MainPage = observer(() => {
   const isBusy =
     userStore.submitStage.isLoading || userStore.resetStage.isLoading;
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = (event: SubmitEvent<HTMLFormElement>) => {
     event.preventDefault();
 
     if (userStore.exists) {

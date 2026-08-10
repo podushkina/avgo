@@ -29,8 +29,8 @@ func (s *Server) requireTrainingPassed(
 	if err != nil {
 		return err
 	}
-	if !progress.IsTrainingPassed {
-		return apierr.ErrTrainingNotPassed.WithDetails(progress)
+	if !progress.Status.IsTrainingPassed() {
+		return apierr.ErrTrainingNotPassed.WithDetails(progress.Public())
 	}
 	return nil
 }

@@ -60,15 +60,15 @@ const TrainingPage = observer(() => {
 
   const handleAnswer = (answerId: number) => {
     void trainingStore.submitAnswer(role, answerId).then(() => {
-      if (!trainingStore.answerStage.isSuccess || !trainingStore.step) {
+      if (!trainingStore.answerStage.isSuccess || !trainingStore.lastSubmit) {
         return;
       }
 
-      const { currentStep, totalSteps } = trainingStore.step;
-
-      userStore.setTrainingProgress(
+      userStore.setStatus(
         role,
-        currentStep < totalSteps ? currentStep : totalSteps,
+        trainingStore.lastSubmit.isTrainingFinished
+          ? 'training_passed'
+          : 'training_in_progress',
       );
     });
   };

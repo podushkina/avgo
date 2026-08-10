@@ -3,6 +3,7 @@ export { rootStore } from './RootStore';
 export {
   default as UserStore,
   hasRoleProgress,
+  isExamFinished,
   isRole,
   isTrainingPassed,
 } from './UserStore';
@@ -11,6 +12,7 @@ export type {
   Gender,
   MeResponse,
   MeUser,
+  ProgressStatus,
   Role,
   RoleProgress,
   UserProfile,

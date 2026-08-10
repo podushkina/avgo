@@ -26,31 +26,10 @@ func (s Status) IsExamFinished() bool {
 	return s == StatusExamPassed || s == StatusExamFailed
 }
 
-type TrainingProgress struct {
-	CurrentStep int `json:"currentStep"`
-	TotalSteps  int `json:"totalSteps"`
-}
-
+// RoleProgress — публичный прогресс роли в API. Указатель шагов обучения
+// наружу не отдаётся: клиенту достаточно status, а шаги живут в /training/*.
 type RoleProgress struct {
-	Training         TrainingProgress `json:"training"`
-	IsExamPassed     bool             `json:"isExamPassed"`
-	Status           Status           `json:"status"`
-	IsTrainingPassed bool             `json:"isTrainingPassed"`
-}
-
-func NewRoleProgress(status Status, currentStep, totalSteps int) RoleProgress {
-	if currentStep < 0 {
-		currentStep = 0
-	}
-	if totalSteps > 0 && currentStep > totalSteps {
-		currentStep = totalSteps
-	}
-	return RoleProgress{
-		Training:         TrainingProgress{CurrentStep: currentStep, TotalSteps: totalSteps},
-		IsExamPassed:     status.IsExamPassed(),
-		Status:           status,
-		IsTrainingPassed: status.IsTrainingPassed(),
-	}
+	Status Status `json:"status"`
 }
 
 func NextStatusAfterAnswer(current Status, answeredSteps, totalSteps int) Status {

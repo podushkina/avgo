@@ -117,7 +117,19 @@ func (s *Store) TotalSteps(ctx context.Context, role Role) (int, error) {
 	return n, nil
 }
 
-func (s *Store) Progress(ctx context.Context, userID uuid.UUID, role Role) (domain.RoleProgress, error) {
+// RoleState — внутреннее состояние роли: публичный status плюс указатель
+// обучения, который наружу не отдаётся.
+type RoleState struct {
+	Status      domain.Status
+	CurrentStep int
+	TotalSteps  int
+}
+
+func (s RoleState) Public() domain.RoleProgress {
+	return domain.RoleProgress{Status: s.Status}
+}
+
+func (s *Store) Progress(ctx context.Context, userID uuid.UUID, role Role) (RoleState, error) {
 	var (
 		status string
 		step   int
@@ -128,14 +140,26 @@ func (s *Store) Progress(ctx context.Context, userID uuid.UUID, role Role) (doma
 	if errors.Is(err, pgx.ErrNoRows) {
 		status, step = string(domain.StatusNotStarted), 0
 	} else if err != nil {
-		return domain.RoleProgress{}, fmt.Errorf("выборка прогресса: %w", err)
+		return RoleState{}, fmt.Errorf("выборка прогресса: %w", err)
+	}
+
+	if step < 0 {
+		step = 0
 	}
 
 	total, err := s.TotalSteps(ctx, role)
 	if err != nil {
-		return domain.RoleProgress{}, err
+		return RoleState{}, err
 	}
-	return domain.NewRoleProgress(domain.Status(status), step, total), nil
+	if total > 0 && step > total {
+		step = total
+	}
+
+	return RoleState{
+		Status:      domain.Status(status),
+		CurrentStep: step,
+		TotalSteps:  total,
+	}, nil
 }
 
 func (s *Store) SetStatus(ctx context.Context, userID uuid.UUID, role Role, status domain.Status) error {

@@ -18,12 +18,13 @@ func TestSpecIsNotEmpty(t *testing.T) {
 	}
 }
 
-func TestSpecDeclaresBothServers(t *testing.T) {
+func TestSpecDeclaresAPIServer(t *testing.T) {
 	text := string(spec)
-	for _, want := range []string{"/api/v1", "/api"} {
-		if !strings.Contains(text, "url: "+want) {
-			t.Errorf("в спецификации не объявлен сервер %q", want)
-		}
+	if !strings.Contains(text, "url: /api") {
+		t.Error("в спецификации не объявлен сервер /api")
+	}
+	if strings.Contains(text, "url: /api/v1") {
+		t.Error("алиас /api/v1 больше не должен быть в спецификации")
 	}
 }
 

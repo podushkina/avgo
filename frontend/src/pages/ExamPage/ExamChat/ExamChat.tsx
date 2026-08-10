@@ -1,6 +1,7 @@
 import { CircleCheck, CircleX, Send } from 'lucide-react';
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type SubmitEvent } from 'react';
 
+import LogoMark from '@/assets/logo-mark.svg?react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
@@ -48,7 +49,7 @@ const ExamChat = ({
   const isPassed = verdict === 'passed';
   const canSend = text.trim() !== '' && !isWaitingReply && !isFinished;
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = (event: SubmitEvent<HTMLFormElement>) => {
     event.preventDefault();
 
     if (!canSend) {
@@ -63,17 +64,15 @@ const ExamChat = ({
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border bg-card">
       <header className="flex items-center gap-3 border-b px-4 py-3 sm:px-5">
         <div
-          className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-bold text-primary-foreground"
+          className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted"
           aria-hidden
         >
-          Б
+          <LogoMark className="size-full scale-110" />
         </div>
         <div className="flex min-w-0 flex-1 flex-col">
           <span className="text-base font-semibold">Безопаша</span>
           <span className="text-xs text-muted-foreground">
-            {isFinished
-              ? 'Разговор завершён'
-              : `Ход ${cycle} из ${maxCycles} · правильного ответа нет`}
+            {isFinished ? 'Разговор завершён' : 'Правильного ответа нет'}
           </span>
         </div>
       </header>

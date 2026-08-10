@@ -1,24 +1,35 @@
-# Тренажер безопасности (хакатон Авито)
+# Frontend — Безопасная сделка
 
-Стек:
+## Стек
 
-- Yarn
-- React
-- TypeScript
+- React 19, TypeScript
 - Vite
-- CSS-in-JS с библиотекой Vanilla-extract в режиме Zero-runtime (генерирует CSS на стадии сборки)
-- ESLint (разбит на пресеты) + Prettier
+- React Router
+- MobX
+- Tailwind CSS, shadcn/ui
+- MSW (моки API в dev)
+- ESLint, Prettier
+- Yarn 4
 
-## Разработка и сборка
+## Команды
 
-Для разработки запустить:
-
-```sh
-yarn dev
+```bash
+yarn install          # зависимости
+yarn dev              # dev-сервер на http://localhost:3000
+yarn build            # production-сборка в build/
+yarn preview          # локальный просмотр сборки
+yarn lint             # ESLint
+yarn lint:fix       # ESLint с автофиксом
 ```
 
-Сборка:
+В `yarn dev` по умолчанию поднимается MSW. Чтобы ходить в реальный бэкенд через Vite-прокси `/api` → `localhost:8081`, отключи моки так:
 
-```sh
-yarn build
+```bash
+VITE_ENABLE_MSW=false yarn dev
+```
+
+или добавь в `.env.local`:
+
+```bash
+VITE_ENABLE_MSW=false
 ```

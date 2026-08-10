@@ -24,7 +24,7 @@ const (
 	cookieMaxAge  = 180 * 24 * 60 * 60
 )
 
-var apiPrefixes = []string{"/api", "/api/v1"}
+const apiPrefix = "/api"
 
 func handleUnknownAPIPath(w http.ResponseWriter, r *http.Request) {
 	apierr.Write(w, apierr.New(http.StatusNotFound, apierr.CodeNotFound,
@@ -84,14 +84,10 @@ func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 
 	for _, r := range s.routeTable() {
-		for _, prefix := range apiPrefixes {
-			mux.HandleFunc(r.method+" "+prefix+r.path, r.handler)
-		}
+		mux.HandleFunc(r.method+" "+apiPrefix+r.path, r.handler)
 	}
 
-	for _, prefix := range apiPrefixes {
-		mux.HandleFunc(prefix+"/", handleUnknownAPIPath)
-	}
+	mux.HandleFunc(apiPrefix+"/", handleUnknownAPIPath)
 	mux.HandleFunc("GET /healthz", s.handleHealth)
 
 	return mux
@@ -188,7 +184,7 @@ func (s *Server) progressPair(
 	if err != nil {
 		return nil, nil, err
 	}
-	return b, sl, nil
+	return b.Public(), sl.Public(), nil
 }
 
 func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
