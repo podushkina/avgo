@@ -2,8 +2,8 @@ import { observer } from 'mobx-react-lite';
 import type { ComponentType } from 'react';
 import { Navigate } from 'react-router';
 
+import PageLoader from '@/components/PageLoader';
 import { ROUTES } from '@/configs/routes';
-import PageLoader from '@/shared/PageLoader';
 import { rootStore } from '@/stores';
 
 /** HOC для страниц, доступных только созданному пользователю. */

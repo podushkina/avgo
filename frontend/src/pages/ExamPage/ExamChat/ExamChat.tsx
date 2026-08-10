@@ -9,19 +9,33 @@ import type { ExamMessage, ExamVerdict } from '@/stores';
 type ExamChatProps = {
   messages: ExamMessage[];
   isWaitingReply: boolean;
+  hasReplyError: boolean;
+  isFinishing: boolean;
   verdict: ExamVerdict | null;
   explanation: string | null;
+  cycle: number;
+  maxCycles: number;
+  progressPercent: number;
   onSend: (text: string) => void;
   onGoToResults: () => void;
+  onRestart: () => void;
+  onFinish: () => void;
 };
 
 const ExamChat = ({
   messages,
   isWaitingReply,
+  hasReplyError,
+  isFinishing,
   verdict,
   explanation,
+  cycle,
+  maxCycles,
+  progressPercent,
   onSend,
   onGoToResults,
+  onRestart,
+  onFinish,
 }: ExamChatProps) => {
   const [text, setText] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -54,8 +68,32 @@ const ExamChat = ({
         >
           Б
         </div>
-        <span className="text-base font-semibold">Безопаша</span>
+        <div className="flex min-w-0 flex-1 flex-col">
+          <span className="text-base font-semibold">Безопаша</span>
+          <span className="text-xs text-muted-foreground">
+            {isFinished
+              ? 'Разговор завершён'
+              : `Ход ${cycle} из ${maxCycles} · правильного ответа нет`}
+          </span>
+        </div>
       </header>
+
+      <div
+        className="h-1 shrink-0 bg-muted"
+        role="progressbar"
+        aria-valuenow={cycle}
+        aria-valuemin={0}
+        aria-valuemax={maxCycles}
+        aria-label="Прогресс экзамена"
+      >
+        <div
+          className={cn(
+            'h-full transition-all duration-500',
+            isFinished && !isPassed ? 'bg-destructive' : 'bg-primary',
+          )}
+          style={{ width: `${isFinished ? 100 : progressPercent}%` }}
+        />
+      </div>
 
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 py-5 sm:px-5">
         {messages.map(({ id, author, text: messageText }) => (
@@ -75,7 +113,7 @@ const ExamChat = ({
         {isWaitingReply ? (
           <div
             role="status"
-            aria-label="Безопаша печатает"
+            aria-label={isFinishing ? 'Готовим разбор' : 'Безопаша печатает'}
             className="flex w-[70%] max-w-[85%] flex-col gap-2 rounded-2xl rounded-tl-md bg-muted px-4 py-3"
           >
             <span className="message-shimmer h-3 w-full rounded-full" />
@@ -106,6 +144,9 @@ const ExamChat = ({
               <span className="font-semibold">
                 {isPassed ? 'Ты справился!' : 'Ты не справился'}
               </span>
+              <span className="text-sm text-foreground/70">
+                Завершено на ходе {cycle} из {maxCycles}
+              </span>
               {explanation ? (
                 <span className="text-sm leading-relaxed text-foreground/80">
                   {explanation}
@@ -114,37 +155,68 @@ const ExamChat = ({
             </div>
           </div>
 
-          <Button
-            type="button"
-            size="lg"
-            className="w-full"
-            onClick={onGoToResults}
-          >
-            Перейти к результатам обучения
-          </Button>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Button
+              type="button"
+              size="lg"
+              variant="outline"
+              className="w-full sm:flex-1"
+              onClick={onRestart}
+            >
+              Пройти заново
+            </Button>
+            <Button
+              type="button"
+              size="lg"
+              className="w-full sm:flex-1"
+              onClick={onGoToResults}
+            >
+              К результатам
+            </Button>
+          </div>
         </div>
       ) : (
         <form
           onSubmit={handleSubmit}
-          className="flex shrink-0 items-center gap-2 border-t p-4 sm:p-5"
+          className="flex shrink-0 flex-col gap-2 border-t p-4 sm:p-5"
         >
-          <Input
-            value={text}
-            onChange={(event) => setText(event.target.value)}
-            placeholder={
-              isWaitingReply ? 'Безопаша печатает…' : 'Напиши ответ Безопаше'
-            }
-            disabled={isWaitingReply}
-            aria-label="Сообщение"
-            className="h-10 flex-1"
-          />
+          {hasReplyError ? (
+            <p role="alert" className="text-xs text-destructive">
+              Ответ не пришёл — собеседник недоступен. Попробуй отправить ещё
+              раз.
+            </p>
+          ) : null}
+          <div className="flex items-center gap-2">
+            <Input
+              value={text}
+              onChange={(event) => setText(event.target.value)}
+              placeholder={
+                isFinishing
+                  ? 'Готовим разбор разговора…'
+                  : isWaitingReply
+                    ? 'Безопаша печатает…'
+                    : 'Напиши ответ Безопаше'
+              }
+              disabled={isWaitingReply}
+              aria-label="Сообщение"
+              className="h-10 flex-1"
+            />
+            <button
+              type="submit"
+              aria-label="Отправить"
+              disabled={!canSend}
+              className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground transition-colors outline-none hover:bg-primary/80 focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50"
+            >
+              <Send className="size-5" />
+            </button>
+          </div>
           <button
-            type="submit"
-            aria-label="Отправить"
-            disabled={!canSend}
-            className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground transition-colors outline-none hover:bg-primary/80 focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50"
+            type="button"
+            onClick={onFinish}
+            disabled={isWaitingReply}
+            className="self-start text-xs text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline disabled:pointer-events-none disabled:opacity-50"
           >
-            <Send className="size-5" />
+            Завершить разговор
           </button>
         </form>
       )}

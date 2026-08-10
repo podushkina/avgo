@@ -1,13 +1,20 @@
-import { CircleCheck, CircleX, GraduationCap, ShieldCheck } from 'lucide-react';
+import {
+  CircleCheck,
+  CircleX,
+  GraduationCap,
+  ShieldCheck,
+  ThumbsUp,
+  TriangleAlert,
+} from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useEffect } from 'react';
 import { Link, Navigate, useParams } from 'react-router';
 
+import PageLoader from '@/components/PageLoader';
 import { Button } from '@/components/ui/button';
 import { ROUTES } from '@/configs/routes';
-import { HeaderRightSectionPortal } from '@/layouts/Header';
+import { HeaderRightSectionPortal } from '@/layouts';
 import { cn } from '@/lib/utils';
-import PageLoader from '@/shared/PageLoader';
 import { isRole, rootStore } from '@/stores';
 
 const ResultsPage = observer(() => {
@@ -112,6 +119,50 @@ const ResultsPage = observer(() => {
             </div>
           </div>
         </div>
+
+        {results.strengths?.length || results.weaknesses?.length ? (
+          <div className="flex flex-col gap-4 rounded-2xl border bg-card p-4 sm:p-5">
+            <span className="font-semibold">Разбор твоего разговора</span>
+
+            {results.strengths?.length ? (
+              <div className="flex flex-col gap-2">
+                <span className="text-sm font-medium text-emerald-700 dark:text-emerald-400">
+                  Сильные стороны
+                </span>
+                <ul className="flex flex-col gap-2">
+                  {results.strengths.map((item) => (
+                    <li
+                      key={item}
+                      className="flex gap-2 text-sm leading-relaxed text-muted-foreground"
+                    >
+                      <ThumbsUp className="mt-0.5 size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
+            {results.weaknesses?.length ? (
+              <div className="flex flex-col gap-2">
+                <span className="text-sm font-medium text-amber-700 dark:text-amber-400">
+                  Над чем поработать
+                </span>
+                <ul className="flex flex-col gap-2">
+                  {results.weaknesses.map((item) => (
+                    <li
+                      key={item}
+                      className="flex gap-2 text-sm leading-relaxed text-muted-foreground"
+                    >
+                      <TriangleAlert className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
 
         <div className="flex flex-col gap-3 rounded-2xl border bg-card p-4 sm:p-5">
           <div className="flex items-center gap-3">

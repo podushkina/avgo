@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -15,7 +14,11 @@ import (
 	"github.com/avito-antifraud/api/internal/domain"
 )
 
-var ErrNotFound = errors.New("не найдено")
+var (
+	ErrNotFound     = errors.New("не найдено")
+	ErrStepMismatch = errors.New("шаг не совпадает с текущим")
+	ErrNoActive     = errors.New("активной сессии нет")
+)
 
 type Store struct {
 	pool *pgxpool.Pool
@@ -25,297 +28,551 @@ func New(pool *pgxpool.Pool) *Store {
 	return &Store{pool: pool}
 }
 
+func (s *Store) Ping(ctx context.Context) error { return s.pool.Ping(ctx) }
+
 type User struct {
-	ID         uuid.UUID `json:"id"`
-	ExternalID string    `json:"external_id"`
-	CreatedAt  time.Time `json:"created_at"`
+	ID        uuid.UUID
+	AnonToken string
+	Name      string
+	AgeGroup  string
+	Gender    string
+	CreatedAt time.Time
 }
 
-func (s *Store) EnsureUser(ctx context.Context, externalID string) (User, error) {
+func (s *Store) UserByToken(ctx context.Context, token string) (User, error) {
 	var u User
 	err := s.pool.QueryRow(ctx, `
-        INSERT INTO users (id, external_id)
-        VALUES ($1, $2)
-        ON CONFLICT (external_id) DO UPDATE SET external_id = EXCLUDED.external_id
-        RETURNING id, external_id, created_at`,
-		uuid.New(), externalID,
-	).Scan(&u.ID, &u.ExternalID, &u.CreatedAt)
+		SELECT id, anon_token, name, age_group, gender, created_at
+		FROM users WHERE anon_token = $1`, token,
+	).Scan(&u.ID, &u.AnonToken, &u.Name, &u.AgeGroup, &u.Gender, &u.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return User{}, ErrNotFound
+	}
 	if err != nil {
-		return User{}, fmt.Errorf("создание пользователя: %w", err)
+		return User{}, fmt.Errorf("выборка пользователя: %w", err)
 	}
 	return u, nil
 }
 
-func (s *Store) ScenariosByRole(ctx context.Context, role domain.Role) ([]domain.Scenario, error) {
-	rows, err := s.pool.Query(ctx, `
-        SELECT id, role, order_index, title, situation, question,
-               options, correct_option, explanation, red_flags
-        FROM scenarios
-        WHERE role = $1
-        ORDER BY order_index`, string(role))
+func (s *Store) UpsertUser(ctx context.Context, token, name, ageGroup, gender string) (User, error) {
+	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("выборка сценариев: %w", err)
+		return User{}, fmt.Errorf("начало транзакции: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = tx.Rollback(ctx) }()
 
-	var out []domain.Scenario
-	for rows.Next() {
-		var (
-			sc       domain.Scenario
-			roleStr  string
-			opts     []byte
-			redFlags []byte
-		)
-		if err := rows.Scan(&sc.ID, &roleStr, &sc.OrderIndex, &sc.Title, &sc.Situation,
-			&sc.Question, &opts, &sc.CorrectOption, &sc.Explanation, &redFlags); err != nil {
-			return nil, fmt.Errorf("чтение сценария: %w", err)
-		}
-		if err := json.Unmarshal(opts, &sc.Options); err != nil {
-			return nil, fmt.Errorf("разбор вариантов сценария %d: %w", sc.ID, err)
-		}
-		if err := json.Unmarshal(redFlags, &sc.RedFlags); err != nil {
-			return nil, fmt.Errorf("разбор признаков сценария %d: %w", sc.ID, err)
-		}
-		sc.Role = domain.Role(roleStr)
-		out = append(out, sc)
+	var u User
+	err = tx.QueryRow(ctx, `
+		INSERT INTO users (id, anon_token, name, age_group, gender)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (anon_token) DO UPDATE
+			SET name = EXCLUDED.name,
+			    age_group = EXCLUDED.age_group,
+			    gender = EXCLUDED.gender
+		RETURNING id, anon_token, name, age_group, gender, created_at`,
+		uuid.New(), token, name, ageGroup, gender,
+	).Scan(&u.ID, &u.AnonToken, &u.Name, &u.AgeGroup, &u.Gender, &u.CreatedAt)
+	if err != nil {
+		return User{}, fmt.Errorf("создание пользователя: %w", err)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("обход сценариев: %w", err)
+
+	for _, role := range []string{string(RoleBuyer), string(RoleSeller)} {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO role_progress (user_id, role) VALUES ($1, $2)
+			ON CONFLICT (user_id, role) DO NOTHING`, u.ID, role); err != nil {
+			return User{}, fmt.Errorf("создание прогресса: %w", err)
+		}
 	}
-	return out, nil
+
+	if err := tx.Commit(ctx); err != nil {
+		return User{}, fmt.Errorf("коммит: %w", err)
+	}
+	return u, nil
 }
 
-func (s *Store) ScenarioByID(ctx context.Context, id int) (domain.Scenario, error) {
+type Role string
+
+const (
+	RoleBuyer  Role = "buyer"
+	RoleSeller Role = "seller"
+)
+
+func ParseRole(s string) (Role, error) {
+	switch Role(s) {
+	case RoleBuyer:
+		return RoleBuyer, nil
+	case RoleSeller:
+		return RoleSeller, nil
+	default:
+		return "", fmt.Errorf("неизвестная роль %q: ожидается buyer или seller", s)
+	}
+}
+
+func (s *Store) TotalSteps(ctx context.Context, role Role) (int, error) {
+	var n int
+	if err := s.pool.QueryRow(ctx,
+		`SELECT count(*) FROM training_steps WHERE role = $1`, string(role)).Scan(&n); err != nil {
+		return 0, fmt.Errorf("подсчёт шагов: %w", err)
+	}
+	return n, nil
+}
+
+func (s *Store) Progress(ctx context.Context, userID uuid.UUID, role Role) (domain.RoleProgress, error) {
 	var (
-		sc       domain.Scenario
-		roleStr  string
-		opts     []byte
-		redFlags []byte
+		status string
+		step   int
 	)
 	err := s.pool.QueryRow(ctx, `
-        SELECT id, role, order_index, title, situation, question,
-               options, correct_option, explanation, red_flags
-        FROM scenarios WHERE id = $1`, id,
-	).Scan(&sc.ID, &roleStr, &sc.OrderIndex, &sc.Title, &sc.Situation,
-		&sc.Question, &opts, &sc.CorrectOption, &sc.Explanation, &redFlags)
+		SELECT status, current_step FROM role_progress WHERE user_id = $1 AND role = $2`,
+		userID, string(role)).Scan(&status, &step)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return domain.Scenario{}, ErrNotFound
+		status, step = string(domain.StatusNotStarted), 0
+	} else if err != nil {
+		return domain.RoleProgress{}, fmt.Errorf("выборка прогресса: %w", err)
 	}
+
+	total, err := s.TotalSteps(ctx, role)
 	if err != nil {
-		return domain.Scenario{}, fmt.Errorf("выборка сценария: %w", err)
+		return domain.RoleProgress{}, err
 	}
-	if err := json.Unmarshal(opts, &sc.Options); err != nil {
-		return domain.Scenario{}, fmt.Errorf("разбор вариантов: %w", err)
-	}
-	if err := json.Unmarshal(redFlags, &sc.RedFlags); err != nil {
-		return domain.Scenario{}, fmt.Errorf("разбор признаков: %w", err)
-	}
-	sc.Role = domain.Role(roleStr)
-	return sc, nil
+	return domain.NewRoleProgress(domain.Status(status), step, total), nil
 }
 
-type ProgressEntry struct {
-	ID           uuid.UUID       `json:"id"`
-	Role         domain.Role     `json:"role"`
-	CorrectCount int             `json:"correct_count"`
-	TotalCount   int             `json:"total_count"`
-	Percent      float64         `json:"percent"`
-	Score        int             `json:"score"`
-	Level        string          `json:"level"`
-	Mistakes     []domain.Review `json:"mistakes"`
-	CompletedAt  time.Time       `json:"completed_at"`
+func (s *Store) SetStatus(ctx context.Context, userID uuid.UUID, role Role, status domain.Status) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO role_progress (user_id, role, status, updated_at)
+		VALUES ($1, $2, $3, now())
+		ON CONFLICT (user_id, role) DO UPDATE SET status = EXCLUDED.status, updated_at = now()`,
+		userID, string(role), string(status))
+	if err != nil {
+		return fmt.Errorf("обновление статуса: %w", err)
+	}
+	return nil
 }
 
-func (s *Store) SaveProgress(
-	ctx context.Context, userID uuid.UUID, role domain.Role, res domain.Result,
-) (ProgressEntry, error) {
-	mistakes, err := json.Marshal(res.Mistakes)
+func (s *Store) ResetProgress(ctx context.Context, userID uuid.UUID, role Role) error {
+	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return ProgressEntry{}, fmt.Errorf("сериализация разбора ошибок: %w", err)
+		return fmt.Errorf("начало транзакции: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	stmts := []struct {
+		sql  string
+		args []any
+	}{
+		{`DELETE FROM training_answers WHERE user_id = $1 AND role = $2`, []any{userID, string(role)}},
+		{`UPDATE exam_sessions SET status = 'abandoned', finished_at = now()
+		  WHERE user_id = $1 AND role = $2 AND status = 'active'`, []any{userID, string(role)}},
+		{`DELETE FROM results WHERE user_id = $1 AND role = $2`, []any{userID, string(role)}},
+		{`INSERT INTO role_progress (user_id, role, status, current_step, updated_at)
+		  VALUES ($1, $2, 'not_started', 0, now())
+		  ON CONFLICT (user_id, role) DO UPDATE
+		      SET status = 'not_started', current_step = 0, updated_at = now()`,
+			[]any{userID, string(role)}},
+	}
+	for _, st := range stmts {
+		if _, err := tx.Exec(ctx, st.sql, st.args...); err != nil {
+			return fmt.Errorf("сброс прогресса: %w", err)
+		}
 	}
 
-	entry := ProgressEntry{
-		ID:           uuid.New(),
-		Role:         role,
-		CorrectCount: res.Correct,
-		TotalCount:   res.Total,
-		Percent:      res.Percent,
-		Score:        res.Score,
-		Level:        res.Level,
-		Mistakes:     res.Mistakes,
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("коммит: %w", err)
 	}
-	err = s.pool.QueryRow(ctx, `
-        INSERT INTO progress (id, user_id, role, correct_count, total_count, percent, score, answers)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-        RETURNING completed_at`,
-		entry.ID, userID, string(role), res.Correct, res.Total, res.Percent, res.Score, mistakes,
-	).Scan(&entry.CompletedAt)
-	if err != nil {
-		return ProgressEntry{}, fmt.Errorf("сохранение прогресса: %w", err)
-	}
-	return entry, nil
+	return nil
 }
 
-func (s *Store) ProgressByUser(ctx context.Context, userID uuid.UUID) ([]ProgressEntry, error) {
+type Option struct {
+	ID        int64  `json:"id"`
+	Text      string `json:"text"`
+	IsCorrect bool   `json:"-"`
+}
+
+type Step struct {
+	ID          int64
+	StepNo      int
+	ProductName string
+	Message     string
+	Explanation string
+	Options     []Option
+}
+
+func (s *Step) CorrectID() int64 {
+	for _, o := range s.Options {
+		if o.IsCorrect {
+			return o.ID
+		}
+	}
+	return 0
+}
+
+func (s *Store) StepByNumber(ctx context.Context, role Role, stepNo int) (Step, error) {
+	var st Step
+	err := s.pool.QueryRow(ctx, `
+		SELECT id, step_no, product_name, message, explanation
+		FROM training_steps WHERE role = $1 AND step_no = $2`,
+		string(role), stepNo,
+	).Scan(&st.ID, &st.StepNo, &st.ProductName, &st.Message, &st.Explanation)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Step{}, ErrNotFound
+	}
+	if err != nil {
+		return Step{}, fmt.Errorf("выборка шага: %w", err)
+	}
+
 	rows, err := s.pool.Query(ctx, `
-        SELECT id, role, correct_count, total_count, percent, score, answers, completed_at
-        FROM progress
-        WHERE user_id = $1
-        ORDER BY completed_at DESC`, userID)
+		SELECT id, text, is_correct FROM training_options
+		WHERE step_id = $1 ORDER BY position, id`, st.ID)
 	if err != nil {
-		return nil, fmt.Errorf("выборка прогресса: %w", err)
+		return Step{}, fmt.Errorf("выборка вариантов: %w", err)
 	}
 	defer rows.Close()
 
-	out := []ProgressEntry{}
 	for rows.Next() {
-		var (
-			e        ProgressEntry
-			roleStr  string
-			mistakes []byte
-		)
-		if err := rows.Scan(&e.ID, &roleStr, &e.CorrectCount, &e.TotalCount,
-			&e.Percent, &e.Score, &mistakes, &e.CompletedAt); err != nil {
-			return nil, fmt.Errorf("чтение прогресса: %w", err)
+		var o Option
+		if err := rows.Scan(&o.ID, &o.Text, &o.IsCorrect); err != nil {
+			return Step{}, fmt.Errorf("чтение варианта: %w", err)
 		}
-		if err := json.Unmarshal(mistakes, &e.Mistakes); err != nil {
-			return nil, fmt.Errorf("разбор ошибок попытки %s: %w", e.ID, err)
-		}
-		e.Role = domain.Role(roleStr)
-		e.Level = domain.LevelFor(e.Percent)
-		out = append(out, e)
+		st.Options = append(st.Options, o)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("обход прогресса: %w", err)
+		return Step{}, fmt.Errorf("обход вариантов: %w", err)
+	}
+	return st, nil
+}
+
+func (s *Store) AnsweredCount(ctx context.Context, userID uuid.UUID, role Role) (int, error) {
+	var n int
+	if err := s.pool.QueryRow(ctx,
+		`SELECT count(*) FROM training_answers WHERE user_id = $1 AND role = $2`,
+		userID, string(role)).Scan(&n); err != nil {
+		return 0, fmt.Errorf("подсчёт ответов: %w", err)
+	}
+	return n, nil
+}
+
+type TrainingAnswer struct {
+	StepNo    int  `json:"stepNumber"`
+	IsCorrect bool `json:"isCorrect"`
+}
+
+func (s *Store) Answers(ctx context.Context, userID uuid.UUID, role Role) ([]TrainingAnswer, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT ts.step_no, ta.is_correct
+		FROM training_answers ta
+		JOIN training_steps ts ON ts.id = ta.step_id
+		WHERE ta.user_id = $1 AND ta.role = $2
+		ORDER BY ts.step_no`, userID, string(role))
+	if err != nil {
+		return nil, fmt.Errorf("выборка ответов: %w", err)
+	}
+	defer rows.Close()
+
+	out := []TrainingAnswer{}
+	for rows.Next() {
+		var a TrainingAnswer
+		if err := rows.Scan(&a.StepNo, &a.IsCorrect); err != nil {
+			return nil, fmt.Errorf("чтение ответа: %w", err)
+		}
+		out = append(out, a)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("обход ответов: %w", err)
 	}
 	return out, nil
 }
 
-func (s *Store) ProgressByUserPaginated(ctx context.Context, userID uuid.UUID, limit, offset int) ([]ProgressEntry, int, error) {
-	if limit <= 0 {
-		limit = 10
+func (s *Store) RecordAnswer(
+	ctx context.Context, userID uuid.UUID, role Role, expectedStep int, optionID int64,
+) (step Step, isCorrect bool, answered int, err error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return Step{}, false, 0, fmt.Errorf("начало транзакции: %w", err)
 	}
-	if limit > 100 {
-		limit = 100
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var current int
+	err = tx.QueryRow(ctx, `
+		SELECT current_step FROM role_progress
+		WHERE user_id = $1 AND role = $2 FOR UPDATE`, userID, string(role)).Scan(&current)
+	if errors.Is(err, pgx.ErrNoRows) {
+		if _, err = tx.Exec(ctx, `
+			INSERT INTO role_progress (user_id, role) VALUES ($1, $2)`,
+			userID, string(role)); err != nil {
+			return Step{}, false, 0, fmt.Errorf("создание прогресса: %w", err)
+		}
+		current = 0
+	} else if err != nil {
+		return Step{}, false, 0, fmt.Errorf("выборка указателя: %w", err)
 	}
-	if offset < 0 {
-		offset = 0
+
+	stepNo := current + 1
+	if expectedStep > 0 && expectedStep != stepNo {
+		return Step{}, false, current, ErrStepMismatch
+	}
+
+	st, err := s.stepTx(ctx, tx, role, stepNo)
+	if err != nil {
+		return Step{}, false, current, err
+	}
+
+	var correct bool
+	found := false
+	for _, o := range st.Options {
+		if o.ID == optionID {
+			correct, found = o.IsCorrect, true
+			break
+		}
+	}
+	if !found {
+		return Step{}, false, current, ErrNotFound
+	}
+
+	if _, err = tx.Exec(ctx, `
+		INSERT INTO training_answers (user_id, role, step_id, option_id, is_correct)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (user_id, role, step_id) DO NOTHING`,
+		userID, string(role), st.ID, optionID, correct); err != nil {
+		return Step{}, false, current, fmt.Errorf("сохранение ответа: %w", err)
 	}
 
 	var total int
-	err := s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM progress WHERE user_id = $1`, userID).Scan(&total)
-	if err != nil {
-		return nil, 0, fmt.Errorf("подсчет прогресса: %w", err)
+	if err = tx.QueryRow(ctx,
+		`SELECT count(*) FROM training_steps WHERE role = $1`, string(role)).Scan(&total); err != nil {
+		return Step{}, false, current, fmt.Errorf("подсчёт шагов: %w", err)
 	}
 
-	rows, err := s.pool.Query(ctx, `
-        SELECT id, role, correct_count, total_count, percent, score, answers, completed_at
-        FROM progress
-        WHERE user_id = $1
-        ORDER BY completed_at DESC
-        LIMIT $2 OFFSET $3`, userID, limit, offset)
+	status := domain.NextStatusAfterAnswer(domain.StatusTrainingInProgress, stepNo, total)
+	if _, err = tx.Exec(ctx, `
+		UPDATE role_progress SET current_step = $3, status = $4, updated_at = now()
+		WHERE user_id = $1 AND role = $2`,
+		userID, string(role), stepNo, string(status)); err != nil {
+		return Step{}, false, current, fmt.Errorf("сдвиг указателя: %w", err)
+	}
+
+	if err = tx.Commit(ctx); err != nil {
+		return Step{}, false, current, fmt.Errorf("коммит: %w", err)
+	}
+	return st, correct, stepNo, nil
+}
+
+func (s *Store) stepTx(ctx context.Context, tx pgx.Tx, role Role, stepNo int) (Step, error) {
+	var st Step
+	err := tx.QueryRow(ctx, `
+		SELECT id, step_no, product_name, message, explanation
+		FROM training_steps WHERE role = $1 AND step_no = $2`,
+		string(role), stepNo,
+	).Scan(&st.ID, &st.StepNo, &st.ProductName, &st.Message, &st.Explanation)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Step{}, ErrNotFound
+	}
 	if err != nil {
-		return nil, 0, fmt.Errorf("выборка прогресса: %w", err)
+		return Step{}, fmt.Errorf("выборка шага: %w", err)
+	}
+
+	rows, err := tx.Query(ctx, `
+		SELECT id, text, is_correct FROM training_options
+		WHERE step_id = $1 ORDER BY position, id`, st.ID)
+	if err != nil {
+		return Step{}, fmt.Errorf("выборка вариантов: %w", err)
 	}
 	defer rows.Close()
 
-	out := []ProgressEntry{}
 	for rows.Next() {
-		var (
-			e        ProgressEntry
-			roleStr  string
-			mistakes []byte
-		)
-		if err := rows.Scan(&e.ID, &roleStr, &e.CorrectCount, &e.TotalCount,
-			&e.Percent, &e.Score, &mistakes, &e.CompletedAt); err != nil {
-			return nil, 0, fmt.Errorf("чтение прогресса: %w", err)
+		var o Option
+		if err := rows.Scan(&o.ID, &o.Text, &o.IsCorrect); err != nil {
+			return Step{}, fmt.Errorf("чтение варианта: %w", err)
 		}
-		if err := json.Unmarshal(mistakes, &e.Mistakes); err != nil {
-			return nil, 0, fmt.Errorf("разбор ошибок попытки %s: %w", e.ID, err)
+		st.Options = append(st.Options, o)
+	}
+	return st, rows.Err()
+}
+
+type Persona struct {
+	Name     string `json:"name"`
+	AgeGroup string `json:"ageGroup"`
+	Gender   string `json:"gender"`
+}
+
+type ExamMessage struct {
+	ID        int64     `json:"id"`
+	Author    string    `json:"author"`
+	Text      string    `json:"text"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+type ExamSession struct {
+	ID          uuid.UUID
+	UserID      uuid.UUID
+	Role        Role
+	Status      string
+	Persona     Persona
+	Cycle       int
+	Verdict     *string
+	Explanation *string
+	Mistakes    []domain.Mistake
+	StartedAt   time.Time
+}
+
+func (s *Store) ActiveSession(ctx context.Context, userID uuid.UUID, role Role) (ExamSession, error) {
+	var (
+		sess     ExamSession
+		persona  []byte
+		mistakes []byte
+	)
+	err := s.pool.QueryRow(ctx, `
+		SELECT id, user_id, role, status, persona, cycle, verdict, explanation, mistakes, started_at
+		FROM exam_sessions
+		WHERE user_id = $1 AND role = $2 AND status = 'active'`, userID, string(role),
+	).Scan(&sess.ID, &sess.UserID, &sess.Role, &sess.Status, &persona, &sess.Cycle,
+		&sess.Verdict, &sess.Explanation, &mistakes, &sess.StartedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ExamSession{}, ErrNoActive
+	}
+	if err != nil {
+		return ExamSession{}, fmt.Errorf("выборка сессии: %w", err)
+	}
+	if err := json.Unmarshal(persona, &sess.Persona); err != nil {
+		return ExamSession{}, fmt.Errorf("разбор персоны: %w", err)
+	}
+	if err := json.Unmarshal(mistakes, &sess.Mistakes); err != nil {
+		return ExamSession{}, fmt.Errorf("разбор ошибок: %w", err)
+	}
+	return sess, nil
+}
+
+func (s *Store) CreateSession(
+	ctx context.Context, userID uuid.UUID, role Role, persona Persona,
+) (ExamSession, error) {
+	raw, err := json.Marshal(persona)
+	if err != nil {
+		return ExamSession{}, fmt.Errorf("сериализация персоны: %w", err)
+	}
+
+	var sess ExamSession
+	err = s.pool.QueryRow(ctx, `
+		INSERT INTO exam_sessions (user_id, role, persona) VALUES ($1, $2, $3)
+		RETURNING id, user_id, role, status, cycle, started_at`,
+		userID, string(role), raw,
+	).Scan(&sess.ID, &sess.UserID, &sess.Role, &sess.Status, &sess.Cycle, &sess.StartedAt)
+	if err != nil {
+		return ExamSession{}, fmt.Errorf("создание сессии: %w", err)
+	}
+	sess.Persona = persona
+	return sess, nil
+}
+
+func (s *Store) AbandonActive(ctx context.Context, userID uuid.UUID, role Role) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE exam_sessions SET status = 'abandoned', finished_at = now()
+		WHERE user_id = $1 AND role = $2 AND status = 'active'`, userID, string(role))
+	if err != nil {
+		return fmt.Errorf("закрытие сессии: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) ExpireStaleSessions(ctx context.Context, ttl time.Duration) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE exam_sessions SET status = 'abandoned', finished_at = now()
+		WHERE status = 'active' AND started_at < now() - $1::interval`,
+		fmt.Sprintf("%d seconds", int(ttl.Seconds())))
+	if err != nil {
+		return fmt.Errorf("протухшие сессии: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) AddMessage(ctx context.Context, sessionID uuid.UUID, author, text string) (ExamMessage, error) {
+	var m ExamMessage
+	err := s.pool.QueryRow(ctx, `
+		INSERT INTO exam_messages (session_id, author, text) VALUES ($1, $2, $3)
+		RETURNING id, author, text, created_at`, sessionID, author, text,
+	).Scan(&m.ID, &m.Author, &m.Text, &m.CreatedAt)
+	if err != nil {
+		return ExamMessage{}, fmt.Errorf("сохранение сообщения: %w", err)
+	}
+	return m, nil
+}
+
+func (s *Store) Messages(ctx context.Context, sessionID uuid.UUID) ([]ExamMessage, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, author, text, created_at FROM exam_messages
+		WHERE session_id = $1 ORDER BY id`, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("выборка сообщений: %w", err)
+	}
+	defer rows.Close()
+
+	out := []ExamMessage{}
+	for rows.Next() {
+		var m ExamMessage
+		if err := rows.Scan(&m.ID, &m.Author, &m.Text, &m.CreatedAt); err != nil {
+			return nil, fmt.Errorf("чтение сообщения: %w", err)
 		}
-		e.Role = domain.Role(roleStr)
-		e.Level = domain.LevelFor(e.Percent)
-		out = append(out, e)
+		out = append(out, m)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, 0, fmt.Errorf("обход прогресса: %w", err)
+		return nil, fmt.Errorf("обход сообщений: %w", err)
 	}
-	return out, total, nil
+	return out, nil
 }
 
-func (s *Store) Ping(ctx context.Context) error {
-	return s.pool.Ping(ctx)
-}
-
-// StartAttempt создает новую пустую попытку для пользователя
-func (s *Store) StartAttempt(ctx context.Context, userID uuid.UUID, role domain.Role) (uuid.UUID, error) {
-	attemptID := uuid.New()
-	_, err := s.pool.Exec(ctx, `
-        INSERT INTO attempts (id, user_id, role, status, answers)
-        VALUES ($1, $2, $3, 'in_progress', '{}'::jsonb)
-    `, attemptID, userID, string(role))
+func (s *Store) BumpCycle(ctx context.Context, sessionID uuid.UUID, mistakes []domain.Mistake) (int, error) {
+	raw, err := json.Marshal(mistakes)
 	if err != nil {
-		return uuid.Nil, fmt.Errorf("старт попытки: %w", err)
+		return 0, fmt.Errorf("сериализация ошибок: %w", err)
 	}
-	return attemptID, nil
+	var cycle int
+	if err := s.pool.QueryRow(ctx, `
+		UPDATE exam_sessions SET cycle = cycle + 1, mistakes = $2
+		WHERE id = $1 RETURNING cycle`, sessionID, raw).Scan(&cycle); err != nil {
+		return 0, fmt.Errorf("счётчик цикла: %w", err)
+	}
+	return cycle, nil
 }
 
-// RecordAnswer фиксирует ответ. Если ответ уже был, возвращает его.
-func (s *Store) RecordAnswer(ctx context.Context, attemptID uuid.UUID, scenarioID int, optionID int) (int, error) {
-	var savedOption int
-	scenarioStr := strconv.Itoa(scenarioID)
-
-	query := `
-    WITH updated AS (
-        UPDATE attempts
-        SET answers = answers || jsonb_build_object($2::text, $3::int)
-        WHERE id = $1 AND status = 'in_progress' AND NOT (answers ? $2::text)
-        RETURNING (answers->>$2::text)::int AS saved_option
-    )
-    SELECT saved_option FROM updated
-    UNION ALL
-    SELECT (answers->>$2::text)::int FROM attempts WHERE id = $1 AND (answers ? $2::text);`
-
-	err := s.pool.QueryRow(ctx, query, attemptID, scenarioStr, optionID).Scan(&savedOption)
+func (s *Store) FinishSession(ctx context.Context, sessionID uuid.UUID, o domain.ExamOutcome) error {
+	raw, err := json.Marshal(o.Mistakes)
 	if err != nil {
-		return 0, fmt.Errorf("запись ответа (или попытка завершена): %w", err)
+		return fmt.Errorf("сериализация ошибок: %w", err)
 	}
-	return savedOption, nil
-}
-
-// GetAttemptAnswers достает все сохраненные ответы попытки
-func (s *Store) GetAttemptAnswers(ctx context.Context, attemptID uuid.UUID) ([]domain.Answer, domain.Role, uuid.UUID, error) {
-	var answersJSON []byte
-	var roleStr string
-	var userID uuid.UUID
-
-	err := s.pool.QueryRow(ctx, `
-        SELECT answers, role, user_id 
-        FROM attempts 
-        WHERE id = $1 AND status = 'in_progress'
-    `, attemptID).Scan(&answersJSON, &roleStr, &userID)
+	_, err = s.pool.Exec(ctx, `
+		UPDATE exam_sessions
+		SET status = 'finished', verdict = $2, explanation = $3, mistakes = $4, finished_at = now()
+		WHERE id = $1`, sessionID, string(o.Verdict), o.Explanation, raw)
 	if err != nil {
-		return nil, "", uuid.Nil, fmt.Errorf("выборка попытки: %w", err)
+		return fmt.Errorf("завершение сессии: %w", err)
 	}
-
-	var strAnswers map[string]int
-	if err := json.Unmarshal(answersJSON, &strAnswers); err != nil {
-		return nil, "", uuid.Nil, fmt.Errorf("разбор ответов: %w", err)
-	}
-
-	answers := make([]domain.Answer, 0, len(strAnswers))
-	for k, v := range strAnswers {
-		id, _ := strconv.Atoi(k)
-		answers = append(answers, domain.Answer{
-			ScenarioID: id,
-			Option:     v,
-		})
-	}
-	return answers, domain.Role(roleStr), userID, nil
+	return nil
 }
 
-// MarkAttemptCompleted закрывает попытку
-func (s *Store) MarkAttemptCompleted(ctx context.Context, attemptID uuid.UUID) error {
-	_, err := s.pool.Exec(ctx, `UPDATE attempts SET status = 'completed' WHERE id = $1`, attemptID)
-	return err
+func (s *Store) SaveResult(ctx context.Context, userID uuid.UUID, role Role, payload any) error {
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("сериализация результата: %w", err)
+	}
+	_, err = s.pool.Exec(ctx, `
+		INSERT INTO results (user_id, role, payload) VALUES ($1, $2, $3)
+		ON CONFLICT (user_id, role) DO UPDATE SET payload = EXCLUDED.payload, created_at = now()`,
+		userID, string(role), raw)
+	if err != nil {
+		return fmt.Errorf("сохранение результата: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) Result(ctx context.Context, userID uuid.UUID, role Role) (json.RawMessage, error) {
+	var raw json.RawMessage
+	err := s.pool.QueryRow(ctx,
+		`SELECT payload FROM results WHERE user_id = $1 AND role = $2`,
+		userID, string(role)).Scan(&raw)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("выборка результата: %w", err)
+	}
+	return raw, nil
 }

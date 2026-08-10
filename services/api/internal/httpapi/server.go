@@ -2,251 +2,209 @@ package httpapi
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
-	"strconv"
-	"time"
 
 	"github.com/google/uuid"
 
-	"github.com/avito-antifraud/api/internal/domain"
+	"github.com/avito-antifraud/api/internal/apidocs"
+	"github.com/avito-antifraud/api/internal/apierr"
+	"github.com/avito-antifraud/api/internal/config"
+	"github.com/avito-antifraud/api/internal/exam"
+	"github.com/avito-antifraud/api/internal/llm"
 	"github.com/avito-antifraud/api/internal/storage"
-	"github.com/avito-antifraud/httpx"
 )
 
-type AntiFraudStore interface {
-	EnsureUser(ctx context.Context, externalID string) (storage.User, error)
-	ScenariosByRole(ctx context.Context, role domain.Role) ([]domain.Scenario, error)
-	ScenarioByID(ctx context.Context, id int) (domain.Scenario, error)
-	SaveProgress(ctx context.Context, userID uuid.UUID, role domain.Role, res domain.Result) (storage.ProgressEntry, error)
-	ProgressByUser(ctx context.Context, userID uuid.UUID) ([]storage.ProgressEntry, error)
-	ProgressByUserPaginated(ctx context.Context, userID uuid.UUID, limit, offset int) ([]storage.ProgressEntry, int, error)
-	Ping(ctx context.Context) error
+const (
+	sessionCookie = "antiscam_session"
+	cookieMaxAge  = 180 * 24 * 60 * 60
+)
 
-	StartAttempt(ctx context.Context, userID uuid.UUID, role domain.Role) (uuid.UUID, error)
-	RecordAnswer(ctx context.Context, attemptID uuid.UUID, scenarioID int, optionID int) (int, error)
-	GetAttemptAnswers(ctx context.Context, attemptID uuid.UUID) ([]domain.Answer, domain.Role, uuid.UUID, error)
-	MarkAttemptCompleted(ctx context.Context, attemptID uuid.UUID) error
+var apiPrefixes = []string{"/api", "/api/v1"}
+
+func handleUnknownAPIPath(w http.ResponseWriter, r *http.Request) {
+	apierr.Write(w, apierr.New(http.StatusNotFound, apierr.CodeNotFound,
+		"Неизвестная ручка "+r.Method+" "+r.URL.Path+". Список доступных - в /api/docs"))
 }
 
 type Server struct {
-	store AntiFraudStore
-	log   *slog.Logger
+	store      *storage.Store
+	client     llm.Client
+	classifier *exam.Classifier
+	reviewer   *exam.Reviewer
+	cfg        config.Config
+	log        *slog.Logger
+	msgLimiter *RateLimiter
 }
 
-func NewServer(store AntiFraudStore, log *slog.Logger) *Server {
-	return &Server{store: store, log: log}
+func NewServer(store *storage.Store, client llm.Client, cfg config.Config, log *slog.Logger) *Server {
+	return &Server{
+		store:      store,
+		client:     client,
+		classifier: exam.NewClassifier(client, log),
+		reviewer:   exam.NewReviewer(client, log),
+		cfg:        cfg,
+		log:        log,
+		msgLimiter: NewRateLimiter(20.0/60.0, 20),
+	}
+}
+
+type route struct {
+	method  string
+	path    string
+	handler http.HandlerFunc
+}
+
+func (s *Server) routeTable() []route {
+	return []route{
+		{http.MethodGet, "/healthz", s.handleHealth},
+		{http.MethodGet, "/openapi.yaml", apidocs.SpecHandler},
+		{http.MethodGet, "/docs", apidocs.UIHandler},
+		{http.MethodGet, "/me", s.handleMe},
+		{http.MethodPost, "/users", s.handleCreateUser},
+		{http.MethodPost, "/progress/reset", s.handleResetProgress},
+		{http.MethodPost, "/progress/reset/{role}", s.handleResetProgress},
+		{http.MethodGet, "/training/current-step", s.handleCurrentStep},
+		{http.MethodPost, "/training/answer", s.handleAnswer},
+		{http.MethodGet, "/exam/start", s.handleExamStart},
+		{http.MethodPost, "/exam/start", s.handleExamStart},
+		{http.MethodPost, "/exam/restart", s.handleExamRestart},
+		{http.MethodPost, "/exam/message", s.handleExamMessage},
+		{http.MethodPost, "/exam/finish", s.handleExamFinish},
+		{http.MethodGet, "/results", s.handleResults},
+		{http.MethodPost, "/results", s.handleResults},
+	}
 }
 
 func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
+
+	for _, r := range s.routeTable() {
+		for _, prefix := range apiPrefixes {
+			mux.HandleFunc(r.method+" "+prefix+r.path, r.handler)
+		}
+	}
+
+	for _, prefix := range apiPrefixes {
+		mux.HandleFunc(prefix+"/", handleUnknownAPIPath)
+	}
 	mux.HandleFunc("GET /healthz", s.handleHealth)
-	mux.HandleFunc("GET /api/healthz", s.handleHealth)
-	mux.HandleFunc("POST /api/users", s.handleCreateUser)
-	mux.HandleFunc("GET /api/scenarios", s.handleScenarios)
 
-	mux.HandleFunc("POST /api/attempts/start", s.handleStartAttempt)
-	mux.HandleFunc("POST /api/attempts/{id}/check", s.handleCheckAnswer)
-	mux.HandleFunc("POST /api/attempts/{id}/finish", s.handleFinishAttempt)
-
-	mux.HandleFunc("GET /api/progress", s.handleProgress)
-
-	limiter := NewRateLimiter(5, 10)
-
-	return limiter.Middleware(httpx.TimeoutAndLog(s.log, 15*time.Second)(mux))
+	return mux
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	if err := s.store.Ping(r.Context()); err != nil {
-		httpx.WriteError(w, http.StatusServiceUnavailable, "база данных недоступна")
+		apierr.Write(w, apierr.New(http.StatusServiceUnavailable,
+			apierr.CodeInternal, "база данных недоступна"))
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	writeJSON(w, map[string]string{"status": "ok"})
 }
 
-func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		ExternalID string `json:"external_id"`
+func newToken() (string, error) {
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
 	}
-	if !httpx.DecodeJSON(w, r, &req) {
-		return
-	}
-	if req.ExternalID == "" {
-		httpx.WriteError(w, http.StatusBadRequest, "external_id обязателен")
-		return
-	}
-
-	user, err := s.store.EnsureUser(r.Context(), req.ExternalID)
-	if err != nil {
-		s.fail(w, "создание пользователя", err)
-		return
-	}
-	httpx.WriteJSON(w, http.StatusOK, user)
+	return hex.EncodeToString(buf), nil
 }
 
-func (s *Server) handleScenarios(w http.ResponseWriter, r *http.Request) {
-	role, err := domain.ParseRole(r.URL.Query().Get("role"))
-	if err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, err.Error())
-		return
-	}
+func (s *Server) setCookie(w http.ResponseWriter, r *http.Request, token string) {
+	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 
-	scenarios, err := s.store.ScenariosByRole(r.Context(), role)
-	if err != nil {
-		s.fail(w, "выборка сценариев", err)
-		return
-	}
-
-	out := make([]domain.PublicScenario, 0, len(scenarios))
-	for _, sc := range scenarios {
-		out = append(out, sc.Public())
-	}
-	httpx.WriteJSON(w, http.StatusOK, out)
-}
-
-func (s *Server) handleStartAttempt(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		UserID string `json:"user_id"`
-		Role   string `json:"role"`
-	}
-	if !httpx.DecodeJSON(w, r, &req) {
-		return
-	}
-
-	userID, err := uuid.Parse(req.UserID)
-	if err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "некорректный user_id")
-		return
-	}
-	role, err := domain.ParseRole(req.Role)
-	if err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	attemptID, err := s.store.StartAttempt(r.Context(), userID, role)
-	if err != nil {
-		s.fail(w, "старт попытки", err)
-		return
-	}
-
-	httpx.WriteJSON(w, http.StatusOK, map[string]string{"attempt_id": attemptID.String()})
-}
-
-func (s *Server) handleCheckAnswer(w http.ResponseWriter, r *http.Request) {
-	attemptID, err := uuid.Parse(r.PathValue("id"))
-	if err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "некорректный attempt_id")
-		return
-	}
-
-	var req struct {
-		ScenarioID int `json:"scenario_id"`
-		Option     int `json:"option"`
-	}
-	if !httpx.DecodeJSON(w, r, &req) {
-		return
-	}
-
-	savedOption, err := s.store.RecordAnswer(r.Context(), attemptID, req.ScenarioID, req.Option)
-	if err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	sc, err := s.store.ScenarioByID(r.Context(), req.ScenarioID)
-	if err != nil {
-		s.fail(w, "выборка сценария", err)
-		return
-	}
-
-	picked, _ := sc.Option(savedOption)
-	correct, _ := sc.Option(sc.CorrectOption)
-
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{
-		"is_correct":          savedOption == sc.CorrectOption,
-		"your_verdict":        picked.Verdict,
-		"your_outcome":        picked.Outcome,
-		"points":              picked.Verdict.Points(),
-		"correct_option":      sc.CorrectOption,
-		"correct_option_text": correct.Text,
-		"correct_outcome":     correct.Outcome,
-		"explanation":         sc.Explanation,
-		"red_flags":           sc.RedFlags,
-		"was_overwritten":     savedOption != req.Option,
+	http.SetCookie(w, &http.Cookie{
+		Name:     sessionCookie,
+		Value:    token,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   secure,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   cookieMaxAge,
 	})
 }
 
-func (s *Server) handleFinishAttempt(w http.ResponseWriter, r *http.Request) {
-	attemptID, err := uuid.Parse(r.PathValue("id"))
+func (s *Server) token(r *http.Request) string {
+	c, err := r.Cookie(sessionCookie)
 	if err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "некорректный attempt_id")
-		return
+		return ""
 	}
-
-	answers, role, userID, err := s.store.GetAttemptAnswers(r.Context(), attemptID)
-	if err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "попытка не найдена или уже завершена")
-		return
-	}
-
-	scenarios, err := s.store.ScenariosByRole(r.Context(), role)
-	if err != nil {
-		s.fail(w, "выборка сценариев", err)
-		return
-	}
-
-	result := domain.Score(scenarios, answers)
-
-	entry, err := s.store.SaveProgress(r.Context(), userID, role, result)
-	if err != nil {
-		s.fail(w, "сохранение прогресса", err)
-		return
-	}
-
-	_ = s.store.MarkAttemptCompleted(r.Context(), attemptID)
-
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{
-		"progress_id":          entry.ID,
-		"role":                 role,
-		"correct":              result.Correct,
-		"total":                result.Total,
-		"percent":              result.Percent,
-		"score":                result.Score,
-		"max_score":            result.MaxScore,
-		"level":                result.Level,
-		"perfect":              result.Perfect,
-		"reviews":              result.Reviews,
-		"mistakes":             result.Mistakes,
-		"missed_red_flags":     result.RedFlags,
-		"suggested_difficulty": domain.SuggestDifficulty(result.Percent),
-		"completed_at":         entry.CompletedAt,
-	})
+	return c.Value
 }
 
-func (s *Server) handleProgress(w http.ResponseWriter, r *http.Request) {
-	userID, err := uuid.Parse(r.URL.Query().Get("user_id"))
-	if err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "некорректный user_id")
-		return
+func (s *Server) currentUser(r *http.Request) (storage.User, error) {
+	token := s.token(r)
+	if token == "" {
+		return storage.User{}, apierr.ErrUserNotFound
 	}
-
-	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
-
-	entries, total, err := s.store.ProgressByUserPaginated(r.Context(), userID, limit, offset)
-	if err != nil {
-		s.fail(w, "выборка прогресса", err)
-		return
+	u, err := s.store.UserByToken(r.Context(), token)
+	if errors.Is(err, storage.ErrNotFound) {
+		return storage.User{}, apierr.ErrUserNotFound
 	}
+	if err != nil {
+		s.log.Error("выборка пользователя", "error", err)
+		return storage.User{}, apierr.ErrInternal
+	}
+	return u, nil
+}
 
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{
-		"total": total,
-		"items": entries,
-	})
+func (s *Server) roleFrom(r *http.Request, body string) (storage.Role, error) {
+	raw := body
+	if raw == "" {
+		raw = r.PathValue("role")
+	}
+	if raw == "" {
+		raw = r.URL.Query().Get("role")
+	}
+	role, err := storage.ParseRole(raw)
+	if err != nil {
+		return "", apierr.BadRequest(err.Error())
+	}
+	return role, nil
 }
 
 func (s *Server) fail(w http.ResponseWriter, op string, err error) {
+	var apiErr *apierr.Error
+	if errors.As(err, &apiErr) {
+		apierr.Write(w, apiErr)
+		return
+	}
 	s.log.Error(op, "error", err)
-	httpx.WriteError(w, http.StatusInternalServerError, "внутренняя ошибка сервиса")
+	apierr.Write(w, apierr.ErrInternal)
+}
+
+func (s *Server) progressPair(
+	ctx context.Context, userID uuid.UUID,
+) (buyer, seller any, err error) {
+	b, err := s.store.Progress(ctx, userID, storage.RoleBuyer)
+	if err != nil {
+		return nil, nil, err
+	}
+	sl, err := s.store.Progress(ctx, userID, storage.RoleSeller)
+	if err != nil {
+		return nil, nil, err
+	}
+	return b, sl, nil
+}
+
+func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
+	if r.Body == nil || r.ContentLength == 0 {
+		return true
+	}
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+	if err := dec.Decode(dst); err != nil {
+		apierr.Write(w, apierr.BadRequest("некорректный JSON: "+err.Error()))
+		return false
+	}
+	return true
+}
+
+func writeJSON(w http.ResponseWriter, body any) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(body)
 }

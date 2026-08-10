@@ -2,9 +2,9 @@ import { observer } from 'mobx-react-lite';
 import { useEffect } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router';
 
+import PageLoader from '@/components/PageLoader';
 import { ROUTES } from '@/configs/routes';
-import { HeaderRightSectionPortal } from '@/layouts/Header';
-import PageLoader from '@/shared/PageLoader';
+import { HeaderRightSectionPortal } from '@/layouts';
 import { isRole, rootStore } from '@/stores';
 
 import Chat from './Chat';

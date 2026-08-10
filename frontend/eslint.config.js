@@ -1,4 +1,3 @@
-import vanillaExtract from '@antebudimir/eslint-plugin-vanilla-extract';
 import js from '@eslint/js';
 import { defineConfig, globalIgnores } from 'eslint/config';
 import globals from 'globals';
@@ -11,15 +10,8 @@ import {
   typescript,
 } from './eslint-presets/index.js';
 
-// console.log(vanillaExtract.configs.recommended);
-
 export default defineConfig([
   globalIgnores(['.yarn/**', '**/build/**', '.pnp.*', 'public/**']),
-
-  {
-    files: ['src/**/*.css.ts'],
-    extends: [vanillaExtract.configs.recommended],
-  },
 
   // Основные файлы исходного кода проекта
   {

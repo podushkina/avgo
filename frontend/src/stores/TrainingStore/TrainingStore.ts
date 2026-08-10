@@ -1,6 +1,6 @@
 import { makeAutoObservable } from 'mobx';
 
-import { api } from '@/shared/api';
+import { api } from '@/api';
 
 import type { Role } from '../UserStore';
 import { LoadingStageModel } from '../models';
@@ -21,6 +21,9 @@ export type TrainingStepResponse = {
 export type SubmitAnswerResponse = {
   isCorrect: boolean;
   explanation: string;
+  currentStep?: number;
+  totalSteps?: number;
+  isTrainingFinished?: boolean;
 };
 
 class TrainingStore {
@@ -74,7 +77,7 @@ class TrainingStore {
 
     try {
       this.step = await api.get<TrainingStepResponse>(
-        `/api/training/current-step?role=${role}`,
+        `/training/current-step?role=${role}`,
       );
       this.stepStage.success();
     } catch {
@@ -92,12 +95,14 @@ class TrainingStore {
 
     try {
       this.lastSubmit = await api.post<SubmitAnswerResponse>(
-        '/api/training/answer',
+        '/training/answer',
         {
           role,
           answer_id: answerId,
+          stepNumber: this.step.currentStep,
         },
       );
+
       this.answerStage.success();
     } catch {
       this.answerStage.error();

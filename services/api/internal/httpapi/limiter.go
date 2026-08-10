@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/avito-antifraud/httpx"
+	"github.com/avito-antifraud/api/internal/httpx"
 )
 
 type client struct {

@@ -1,6 +1,6 @@
 import { makeAutoObservable } from 'mobx';
 
-import { api } from '@/shared/api';
+import { api } from '@/api';
 
 import { LoadingStageModel } from '../models';
 
@@ -29,10 +29,6 @@ export type MeResponse = {
   user: MeUser | null;
 };
 
-export type CreateUserResponse = {
-  user: MeUser;
-};
-
 export type UserProfile = {
   name: string;
   age: string;
@@ -48,10 +44,10 @@ export const isTrainingPassed = (progress: RoleProgress): boolean =>
 export const hasRoleProgress = (progress: RoleProgress): boolean =>
   progress.training.currentStep > 0 || progress.isExamPassed;
 
-const emptyProgress = (): RoleProgress => ({
+const emptyProgress = (totalSteps = 0): RoleProgress => ({
   training: {
     currentStep: 0,
-    totalSteps: 0,
+    totalSteps,
   },
   isExamPassed: false,
 });
@@ -84,8 +80,6 @@ class UserStore {
       },
       { autoBind: true },
     );
-
-    void this.fetchMe();
   }
 
   get hasProfile(): boolean {
@@ -137,11 +131,20 @@ class UserStore {
     this.submitStage.reset();
   }
 
+  /** Загружает профиль один раз за жизнь приложения; повторные вызовы игнорируются. */
+  async init(): Promise<void> {
+    if (!this.meStage.isNotStarted) {
+      return;
+    }
+
+    await this.fetchMe();
+  }
+
   async fetchMe(): Promise<void> {
     this.meStage.loading();
 
     try {
-      const response = await api.get<MeResponse>('/api/me');
+      const response = await api.get<MeResponse>('/me');
 
       this.applyMeResponse(response);
       this.meStage.success();
@@ -154,13 +157,13 @@ class UserStore {
     this.submitStage.loading();
 
     try {
-      const response = await api.post<CreateUserResponse>('/api/users', {
-        name: profile.name,
+      const { user } = await api.post<{ user: MeUser }>('/users', {
+        name: profile.name.trim(),
         age: profile.age,
         gender: profile.gender,
       });
 
-      this.applyMeResponse({ exists: true, user: response.user });
+      this.applyMeResponse({ exists: true, user });
       this.submitStage.success();
     } catch {
       this.submitStage.error();
@@ -171,7 +174,7 @@ class UserStore {
     this.resetStage.loading();
 
     try {
-      const progress = await api.post<RoleProgress>('/api/progress/reset', {
+      const progress = await api.post<RoleProgress>('/progress/reset', {
         role,
       });
 
