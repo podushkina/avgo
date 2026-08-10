@@ -41,9 +41,8 @@
 Нужен установленный [Docker](https://docs.docker.com/get-docker/).
 
 ```bash
-git clone <репозиторий> && cd <репозиторий>
-make up
-# или: docker compose up -d --build
+git clone https://github.com/dimortix/avgo.git && cd avgo
+docker compose up -d --build
 ```
 
 Приложение откроется на **http://localhost:8080**.
@@ -51,6 +50,7 @@ make up
 Дополнительно:
 
 ```bash
+make up           # то же, что docker compose up -d --build
 make down         # остановить
 make clean        # остановить и удалить тома
 make up-host-llm  # быстрее на macOS, если локально запущен ollama serve
