@@ -80,8 +80,6 @@ class UserStore {
       },
       { autoBind: true },
     );
-
-    void this.fetchMe();
   }
 
   get hasProfile(): boolean {
@@ -131,6 +129,15 @@ class UserStore {
     this.age = age;
     this.gender = gender;
     this.submitStage.reset();
+  }
+
+  /** Загружает профиль один раз за жизнь приложения; повторные вызовы игнорируются. */
+  async init(): Promise<void> {
+    if (!this.meStage.isNotStarted) {
+      return;
+    }
+
+    await this.fetchMe();
   }
 
   async fetchMe(): Promise<void> {

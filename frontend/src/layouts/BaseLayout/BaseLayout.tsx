@@ -1,7 +1,7 @@
 import { Suspense } from 'react';
 import { Outlet } from 'react-router';
 
-import PageLoader from '@/shared/PageLoader';
+import PageLoader from '@/components/PageLoader';
 
 import Header from './Header';
 

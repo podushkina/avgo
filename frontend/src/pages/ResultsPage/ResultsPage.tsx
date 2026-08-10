@@ -10,11 +10,11 @@ import { observer } from 'mobx-react-lite';
 import { useEffect } from 'react';
 import { Link, Navigate, useParams } from 'react-router';
 
+import PageLoader from '@/components/PageLoader';
 import { Button } from '@/components/ui/button';
 import { ROUTES } from '@/configs/routes';
-import { HeaderRightSectionPortal } from '@/layouts/Header';
+import { HeaderRightSectionPortal } from '@/layouts';
 import { cn } from '@/lib/utils';
-import PageLoader from '@/shared/PageLoader';
 import { isRole, rootStore } from '@/stores';
 
 const ResultsPage = observer(() => {
