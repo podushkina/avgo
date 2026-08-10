@@ -1,6 +1,7 @@
 import { makeAutoObservable } from 'mobx';
 
 import { api } from '@/api';
+
 import type { ExamVerdict } from '../ExamStore';
 import type { Role } from '../UserStore';
 import { LoadingStageModel } from '../models';

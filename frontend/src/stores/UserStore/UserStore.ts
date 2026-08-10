@@ -1,6 +1,7 @@
 import { makeAutoObservable } from 'mobx';
 
 import { api } from '@/api';
+
 import { LoadingStageModel } from '../models';
 
 export type Role = 'buyer' | 'seller';
