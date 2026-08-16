@@ -5,11 +5,7 @@
 ---
 
 ## 🎬 Демонстрация работы 
-
-<!-- Если есть гифка-превью, раскомментируй строку ниже и укажи путь: -->
-<!-- ![Превью тренажера](./docs/demo.gif) -->
-
-> 📹 **[Смотреть видео-демонстрацию работы тренажера](https://drive.google.com/file/d/11TJIGsr0pHcQR5hJhLsOGrl7h3IMhMKa/view?usp=sharing)**
+<video src="https://github.com/user-attachments/assets/12bf59b3-76ca-4544-8483-7fd463ebed47.mp4" controls width="100%"></video>
 
 ---
 
